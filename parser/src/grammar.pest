@@ -1,0 +1,369 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT    = _{ LINE_COMMENT | BLOCK_COMMENT }
+
+LINE_COMMENT  = { "//" ~ (!NEWLINE ~ ANY)* }
+BLOCK_COMMENT = { "/*" ~ (BLOCK_COMMENT | (!"*/" ~ ANY))* ~ "*/" }
+
+///////////////////////////////////////////////////////////////////////
+///                            IDENTIFIER
+///////////////////////////////////////////////////////////////////////
+
+uc_identifier = @{ ASCII_ALPHA_UPPER ~ (ASCII_ALPHANUMERIC | "_")* }
+lc_identifier = @{ (ASCII_ALPHA_LOWER | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+identifier    = _{ uc_identifier | lc_identifier }
+
+typevar_name = @{ "'" ~ uc_identifier }
+
+var_name   = { lc_identifier }
+field_name = { lc_identifier }
+arg_name   = { lc_identifier }
+
+scope = _{ (identifier ~ "::")* }
+
+uc_scoped_identifier = { scope ~ uc_identifier }
+lc_scoped_identifier = { scope ~ lc_identifier }
+scoped_identifier    = { uc_scoped_identifier | lc_scoped_identifier }
+
+rel_name  = { uc_scoped_identifier }
+cons_name = { uc_scoped_identifier }
+func_name = { lc_scoped_identifier }
+type_name = { scoped_identifier }
+
+///////////////////////////////////////////////////////////////////////
+///                            DECLARATION
+///////////////////////////////////////////////////////////////////////
+
+datalog = { SOI ~ annotated_decl* ~ EOI }
+
+annotated_decl = { attributes? ~ decl }
+
+decl = {
+    import_decl
+  | typedef
+  | function
+  | relation
+  | rule_decl
+}
+
+attributes = { "#[" ~ attribute ~ ("," ~ attribute)* ~ "]" }
+
+attribute = { identifier ~ "=" ~ expr }
+
+///////////////////////////////////////////////////////////////////////
+///                            IMPORT
+///////////////////////////////////////////////////////////////////////
+module_path  = { identifier ~ ("::" ~ identifier)* }
+module_alias = { identifier }
+
+import_decl = { "import" ~ module_path ~ ("as" ~ module_alias)? }
+
+///////////////////////////////////////////////////////////////////////
+///                            TYPE
+///////////////////////////////////////////////////////////////////////
+// ---------- Typedef ----------
+// Renamed the sub-rules for clarity.
+typedef = {typedef_definition | extern_type}
+
+typedef_definition = {"typedef" ~ type_name ~ type_params? ~ "=" ~ type_spec}
+extern_type = {extern_kw ~ "type" ~ type_name ~ type_params?}
+extern_kw = { "extern" }
+
+type_params = { "<" ~ typevar_name ~ ("," ~ typevar_name)* ~ ">" }
+
+// ---------- Type Specs ----------
+type_spec = {
+    bigint_type
+  | bool_type
+  | string_type
+  | bitvector_type
+  | integer_type
+  | double_type
+  | float_type
+  | tuple_type
+  | union_type
+  | function_type
+  | type_alias
+  | typevar_name
+}
+
+simple_type_spec = {
+    bigint_type
+  | bool_type
+  | string_type
+  | bitvector_type
+  | double_type
+  | float_type
+  | tuple_type
+  | type_alias
+  | typevar_name
+  | function_type
+}
+
+// ---------- Primitive Types ----------
+bigint_type    = { "bigint" }
+bool_type      = { "bool" }
+string_type    = { "string" }
+bitvector_type = { "bit" ~ "<" ~ decimal ~ ">" }
+integer_type   = { "signed" ~ "<" ~ decimal ~ ">" }
+double_type    = { "double" }
+float_type     = { "float" }
+
+// ---------- Composite Types ----------
+tuple_type = { "(" ~ simple_type_spec* ~ ")" }
+
+union_type = { (constructor ~ "|")* ~ constructor }
+
+function_type = {
+    "function" ~ "(" ~ func_params? ~ ")" ~ (":" ~ type_spec)?
+  | "|" ~ func_params? ~ "|" ~ (":" ~ type_spec)?
+}
+
+func_params = { func_param ~ ("," ~ func_param)* }
+func_param  = { mut_kw? ~ type_spec }
+mut_kw = { "mut" }
+
+type_alias = { type_name ~ type_args? }
+type_args  = { "<" ~ type_spec ~ ("," ~ type_spec)* ~ ">" }
+
+// ---------- Constructors ----------
+constructor = {
+    attributes? ~ cons_name
+  | attributes? ~ cons_name ~ "{" ~ field_list? ~ "}"
+}
+
+field_list = { field ~ ("," ~ field)* }
+field      = { attributes? ~ field_name ~ ":" ~ simple_type_spec }
+
+///////////////////////////////////////////////////////////////////////
+///                            FUNCTION
+///////////////////////////////////////////////////////////////////////
+function = {
+    "function" ~ func_name ~ "(" ~ arg_list? ~ ")" ~ ":" ~ simple_type_spec ~ "{" ~ expr ~ "}"
+  | extern_kw ~ "function" ~ func_name ~ "(" ~ arg_list? ~ ")" ~ ":" ~ simple_type_spec
+}
+
+arg_list = { arg ~ ("," ~ arg)* }
+arg      = { arg_name ~ ":" ~ simple_type_spec }
+
+///////////////////////////////////////////////////////////////////////
+///                            RELATION
+///////////////////////////////////////////////////////////////////////
+relation = {
+    io_qualifier? ~ "relation" ~ rel_name ~ "(" ~ arg_list ~ ")" ~ primary_key?
+  | io_qualifier? ~ "relation" ~ rel_name ~ "[" ~ simple_type_spec ~ "]" ~ primary_key?
+}
+
+io_qualifier = { "input" | "output" }
+
+primary_key = { "primary" ~ "key" ~ "(" ~ var_name ~ ")" ~ expr }
+
+///////////////////////////////////////////////////////////////////////
+///                            EXPRESSION
+///////////////////////////////////////////////////////////////////////
+
+// Entry point
+expr = { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ postfix? )* }
+infix       = _{ impl | assign | logic_or | logic_and | bitwise_or | bitwise_and | bool_op | concat | shifts | add_sub | mul_div_mod }
+impl        =  { "=>" }
+assign      =  { "=" }
+logic_or    =  { "or" }
+logic_and   =  { "and" }
+bitwise_or  =  { "|" }
+bitwise_and =  { "&" }
+bool_op     =  { "==" | "!=" | "<" | "<=" | ">" | ">=" }
+concat      =  { "++" }
+shifts      =  { "<<" | ">>" }
+add_sub     =  { "+" | "-" }
+mul_div_mod =  { "*" | "/" | "%" }
+
+// Unary operators
+prefix = {
+    "-" | "~" | "not"
+}
+
+// Postfix ops (calls, indexing, field access, casts, try, etc.)
+postfix = {
+  ( slice
+  | type_annotation
+  | struct_field
+  | fcall
+  | dotcall
+  | tuple_field
+  | cast
+  | try_
+  )*
+}
+
+slice = {"[" ~ decimal ~ "," ~ decimal ~ "]"}
+type_annotation = {":" ~ simple_type_spec}
+struct_field = {"." ~ identifier}
+fcall = {"(" ~ expr_list? ~ ")"} 
+dotcall = {"." ~ func_name ~ "(" ~ expr_list? ~ ")"} 
+tuple_field = {"." ~ decimal} 
+cast = {"as" ~ simple_type_spec}
+try_ = {"?"}
+
+// Parentheses / braces grouping or base terms
+primary = {
+    "(" ~ expr ~ ")"
+  | "{" ~ expr ~ "}"
+  | term
+}
+
+// Expression list
+expr_list = { expr ~ ("," ~ expr)* }
+
+// ---------- Terminals ----------
+term = {
+    "_" // wildcard
+  | int_literal
+  | bool_literal
+  | fp_literal
+  | string_literal
+  | vec_literal
+  | map_literal
+  | cons_term
+  | var_term
+  | match_term
+  | ite_term
+  | for_term
+  | "continue"
+  | "break"
+  | return_term
+  | vardecl_term
+  | lambda_term
+}
+
+bool_literal = { "true" | "false" }
+
+// ---------- Integer Literals ----------
+int_literal = {
+    decimal
+}
+
+// ---------- Floating Point Literals ----------
+fp_literal = { decimal ~ "." ~ decimal ~ exponent? }
+
+exponent = { ("e" | "E") ~ ("+" | "-")? ~ decimal }
+
+// ---------- Numeral Bases ----------
+decimal     = @{ ASCII_DIGIT+ }
+
+// ---------- String Literals ----------
+string_literal = {
+    quoted_string
+  | raw_string
+  | raw_interpolated_string
+}
+
+quoted_string = @{ "\"" ~ ascii_char* ~ "\"" }
+
+raw_string = @{ "[|" ~ ascii_char* ~ "|]" }
+
+raw_interpolated_string = @{ ("$[|" ~ ascii_char* ~ "|]")+ }
+
+ascii_char = {
+    // allow any ASCII except delimiters for quoted/raw forms
+    !("\"" | "|]" | "[|") ~ ANY
+}
+
+// ---------- Vec Literals ----------
+vec_literal = { "[" ~ expr_list? ~ "]" }
+
+// ---------- Map Literals ----------
+map_literal = { "[" ~ kv_pair ~ ("," ~ kv_pair)* ~ "]" }
+
+kv_pair = { expr ~ "->" ~ expr }
+
+// ---------- Constructor Term ----------
+cons_term = {
+    // positional arguments
+    cons_name ~ ("{" ~ expr_list? ~ "}")?
+  | // named arguments
+  cons_name ~ ("{" ~ named_field_list? ~ "}")?
+}
+
+named_field_list = { named_field ~ ("," ~ named_field)* }
+named_field      = { "." ~ field_name ~ "=" ~ expr }
+
+// ---------- Variable Term ----------
+var_term = { var_name }
+
+// ---------- If-Then-Else Term ----------
+ite_term = { "if" ~ term ~ term ~ ("else" ~ term)? }
+
+// ---------- For Loop Term ----------
+for_term = { "for" ~ "(" ~ for_pattern ~ "in" ~ expr ~ ")" ~ term }
+
+// ---------- Return Term ----------
+return_term = { "return" ~ expr? }
+
+// ---------- Variable Declaration Term ----------
+vardecl_term = { "var" ~ var_name }
+
+// ---------- Match Term ----------
+match_term   = { "match" ~ "(" ~ expr ~ ")" ~ "{" ~ match_clause ~ ("," ~ match_clause)* ~ "}" }
+match_clause = { pattern ~ "->" ~ expr }
+
+// ---------- Lambda Term ----------
+lambda_term = {
+    "function" ~ "(" ~ expr_list? ~ ")" ~ (":" ~ simple_type_spec)? ~ expr
+  | "|" ~ expr_list? ~ "|" ~ (":" ~ simple_type_spec)? ~ expr
+}
+
+// ---------- Pattern ----------
+pattern = {
+    pattern_tuple
+  | cons_name ~ ("{" ~ (pattern_list)? ~ "}")?
+  | cons_name ~ "{" ~ named_pattern_list? ~ "}"
+  | vardecl_term
+  | var_term
+  | bool_literal
+  | string_literal
+  | int_literal
+  | "_"
+}
+
+pattern_tuple = {"(" ~ (pattern ~ ("," ~ pattern)*)? ~ ")"}
+
+pattern_list = { pattern ~ ("," ~ pattern)* }
+
+named_pattern_list = { named_pattern ~ ("," ~ named_pattern)* }
+named_pattern      = { "." ~ field_name ~ "=" ~ pattern }
+
+// ---------- For Pattern ----------
+for_pattern = {
+    pattern_tuple
+  | cons_name ~ ("{" ~ (pattern_list)? ~ "}")?
+  | cons_name ~ "{" ~ named_pattern_list? ~ "}"
+  | vardecl_term
+  | var_term
+  | "_"
+}
+
+///////////////////////////////////////////////////////////////////////
+///                            RULE
+///////////////////////////////////////////////////////////////////////
+rule_decl = {
+    atom ~ ("," ~ atom)* ~ ":-" ~ rhs_clause ~ ("," ~ rhs_clause)* ~ "."
+}
+
+// ---------- Atom ----------
+atom = {
+    atom1
+  | atom2
+  | atom3
+}
+
+atom1 = { (var_name ~ "in")? ~ rel_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
+atom2 = { (var_name ~ "in")? ~ rel_name ~ "(" ~ "." ~ arg_name ~ "=" ~ expr ~ ("," ~ "." ~ arg_name ~ "=" ~ expr)* ~ ")" }
+atom3 = {rel_name ~ "[" ~ expr ~ "]" }
+
+// ---------- RHS Clause ----------
+rhs_clause = {
+    atom
+  | "not" ~ atom
+  | expr
+  | expr ~ "=" ~ expr
+  | "var" ~ var_name ~ "=" ~ expr ~ "." ~ "group_by" ~ "(" ~ expr ~ ")"
+}

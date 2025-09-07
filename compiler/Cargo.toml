@@ -1,0 +1,10 @@
+[package]
+name = "frameql-compiler"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+frameql-ast = { "path" = "../ast" }

@@ -1,0 +1,12 @@
+[package]
+name = "frameql-ast"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+pest = "2.8.1"
+pest-ast = "0.3.6"
+pest_derive = "2.8.1"
