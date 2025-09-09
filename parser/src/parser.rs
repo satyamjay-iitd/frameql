@@ -2,20 +2,9 @@ use frameql_ast::{
     AnnotatedDecl, Arg, Atom, AtomPositional, Attribute, BinaryOp, Constructor, Datalog, Decl,
     Expr, ExternFn, Field, FnDef, ForPattern, FuncParam, Function, FunctionType, Identifier,
     Import, IndexedAtom, IoQualifier, NamedAtom, Pattern, PrimaryKey, Relation, RelationKind,
-    RhsClause, Rule, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName, Typedef, UnaryOp,
+    RhsClause, RuleDecl, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName, Typedef, UnaryOp,
 };
 use pest::iterators::Pair;
-
-use crate::{
-    Rule,
-    // ast::{
-    //     AnnotatedDecl, Arg, Atom, AtomPositional, Attribute, BinaryOp, Constructor, Datalog, Decl,
-    //     Expr, ExternFn, Field, FnDef, ForPattern, FuncParam, Function, FunctionType, Identifier,
-    //     Import, IndexedAtom, IoQualifier, NamedAtom, Pattern, PrimaryKey, Relation, RelationKind,
-    //     RhsClause, RuleDecl, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName, Typedef,
-    //     UnaryOp,
-    // },
-};
 
 ///////////////////////////////////////////////////////////////////////
 ///                            IDENTIFIER
@@ -495,6 +484,8 @@ use pest::pratt_parser::{Assoc, Op, PrattParser};
 
 use std::sync::OnceLock;
 
+use crate::Rule;
+
 static EXPR_PRATT: OnceLock<PrattParser<Rule>> = OnceLock::new();
 
 fn get_pratt_parser() -> &'static PrattParser<Rule> {
@@ -668,7 +659,7 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
 pub fn parse_term(pair: Pair<Rule>) -> Term {
     assert_eq!(pair.as_rule(), Rule::term);
 
-    let inner = pair.into_inner().next().unwrap();
+    let inner: Pair<'_, Rule> = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::int_literal => {
             let n = inner.as_str().parse().unwrap();
@@ -727,7 +718,7 @@ pub fn parse_term(pair: Pair<Rule>) -> Term {
                     let mut c_it = cl.into_inner();
                     let pat = parse_pattern(c_it.next().unwrap());
                     let expr = parse_expr(c_it.next().unwrap());
-                    (pat, expr)
+                    (pat.to_expr(), expr)
                 })
                 .collect();
             Term::Match { scrutinee, clauses }
@@ -760,16 +751,37 @@ pub fn parse_term(pair: Pair<Rule>) -> Term {
             }
         }
         Rule::cons_term => {
-            // parse positional/named args
-            Term::ConsTerm {
-                name: parse_identifier(inner.clone().into_inner().next().unwrap()),
-                args: Vec::new(),
-                named_args: Vec::new(),
+            let name = parse_identifier(inner.clone().into_inner().next().unwrap());
+            if let Rule::expr_list = inner.clone().into_inner().peek().unwrap().as_rule() {
+                Term::ConsTerm {
+                    name,
+                    args: inner.into_inner().into_iter().map(parse_expr).collect(),
+                    named_args: Vec::new(),
+                }
+            } else {
+                Term::ConsTerm {
+                    name,
+                    args: Vec::new(),
+                    named_args: inner
+                        .into_inner()
+                        .into_iter()
+                        .map(parse_named_field)
+                        .collect(),
+                }
             }
         }
         Rule::EOI => Term::Wildcard,
         _ => panic!("unhandled term rule {:?}", inner.as_rule()),
     }
+}
+
+pub fn parse_named_field(pair: Pair<Rule>) -> (Identifier, Expr) {
+    assert_eq!(pair.as_rule(), Rule::named_field);
+
+    let name = parse_identifier(pair.clone().into_inner().next().unwrap());
+    let val = parse_expr(pair.into_inner().next().unwrap());
+
+    (name, val)
 }
 
 pub fn parse_pattern(pair: Pair<Rule>) -> Pattern {
@@ -819,7 +831,7 @@ pub fn parse_pattern(pair: Pair<Rule>) -> Pattern {
                 named_args: fields,
             }
         }
-        Rule::cons_term | Rule::cons_name => {
+        Rule::cons_name => {
             let mut it = inner.into_inner();
             let name = parse_identifier(it.next().unwrap());
 
@@ -883,7 +895,7 @@ pub fn parse_forpattern(pair: Pair<Rule>) -> ForPattern {
 ///                            RULE
 ///////////////////////////////////////////////////////////////////////
 
-pub fn parse_rule(pair: Pair<Rule>) -> Rule {
+pub fn parse_rule(pair: Pair<Rule>) -> RuleDecl {
     assert_eq!(pair.as_rule(), Rule::rule_decl);
     let mut inner = pair.into_inner();
 
@@ -899,7 +911,7 @@ pub fn parse_rule(pair: Pair<Rule>) -> Rule {
     // body clauses
     let body = inner.map(parse_rhs).collect();
 
-    Rule {
+    RuleDecl {
         head: head_atoms,
         body,
     }
@@ -1053,7 +1065,7 @@ pub fn parse_datalog(pair: Pair<Rule>) -> Datalog {
             Decl::Typedef(typedef) => typedefs.push((decl.attrs, typedef)),
             Decl::Function(function) => functions.push((decl.attrs, function)),
             Decl::Relation(relation) => relations.push((decl.attrs, relation)),
-            Decl::Rule(rule_decl) => rules.push((decl.attrs, rule_decl)),
+            Decl::RuleDecl(rule_decl) => rules.push((decl.attrs, rule_decl)),
         }
     }
     Datalog {
@@ -1098,7 +1110,7 @@ fn parse_decl(pair: Pair<Rule>) -> Decl {
         Rule::typedef => Decl::Typedef(parse_typedef(inner)),
         Rule::function => Decl::Function(parse_fn(inner)),
         Rule::relation => Decl::Relation(parse_relation(inner)),
-        Rule::rule_decl => Decl::Rule(parse_rule(inner)),
+        Rule::rule_decl => Decl::RuleDecl(parse_rule(inner)),
         _ => unreachable!(),
     }
 }

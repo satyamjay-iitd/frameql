@@ -223,6 +223,7 @@ pub enum Term {
     String(String),
     Float(f64),
     Vec(Vec<Expr>),
+    Tuple(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
     ConsTerm {
         name: Identifier,
@@ -232,7 +233,7 @@ pub enum Term {
     Var(Identifier),
     Match {
         scrutinee: Box<Expr>,
-        clauses: Vec<(Pattern, Expr)>,
+        clauses: Vec<(Expr, Expr)>,
     },
     IfThenElse {
         cond: Box<Term>,
@@ -270,6 +271,31 @@ pub enum Pattern {
     String(String),
     Int(i64),
     Wildcard,
+}
+impl Pattern {
+    pub fn to_expr(&self) -> Expr {
+        match self {
+            Pattern::Tuple(patterns) => todo!(),
+            Pattern::Cons {
+                name,
+                args,
+                named_args,
+            } => Expr::Term(Term::ConsTerm {
+                name: name.clone(),
+                args: args.iter().map(|arg| arg.to_expr()).collect(),
+                named_args: named_args
+                    .iter()
+                    .map(|(name, val)| (name.clone(), val.to_expr()))
+                    .collect(),
+            }),
+            Pattern::VarDecl(identifier) => todo!(),
+            Pattern::Var(identifier) => todo!(),
+            Pattern::Bool(_) => todo!(),
+            Pattern::String(_) => todo!(),
+            Pattern::Int(_) => todo!(),
+            Pattern::Wildcard => todo!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -319,40 +345,40 @@ pub enum BinaryOp {
 ///////////////////////////////////////////////////////////////////////
 ///                            RULE
 ///////////////////////////////////////////////////////////////////////
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuleDecl {
     pub head: Vec<Atom>,
     pub body: Vec<RhsClause>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Atom {
     Positional(AtomPositional),
     Named(NamedAtom),
     Indexed(IndexedAtom),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AtomPositional {
     pub binding: Option<Identifier>, // `x in R(...)`
     pub rel: Identifier,
     pub args: Vec<Expr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NamedAtom {
     pub binding: Option<Identifier>,
     pub rel: Identifier,
     pub args: Vec<(Identifier, Expr)>, // .field = expr
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IndexedAtom {
     pub rel: Identifier,
     pub index: Expr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RhsClause {
     Atom(Atom),
     Not(Atom),
@@ -390,5 +416,5 @@ pub enum Decl {
     Typedef(Typedef),
     Function(Function),
     Relation(Relation),
-    Rule(RuleDecl),
+    RuleDecl(RuleDecl),
 }

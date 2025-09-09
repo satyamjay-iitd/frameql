@@ -222,6 +222,7 @@ term = {
   | string_literal
   | vec_literal
   | map_literal
+  | tuple_literal
   | cons_term
   | var_term
   | match_term
@@ -274,6 +275,9 @@ vec_literal = { "[" ~ expr_list? ~ "]" }
 map_literal = { "[" ~ kv_pair ~ ("," ~ kv_pair)* ~ "]" }
 
 kv_pair = { expr ~ "->" ~ expr }
+
+// ---------- Tuple Literals ----------
+tuple_literal = { "(" ~ expr_list? ~ ")" }
 
 // ---------- Constructor Term ----------
 cons_term = {
