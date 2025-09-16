@@ -8,3 +8,5 @@ authors.workspace = true
 
 [dependencies]
 frameql-ast = { "path" = "../ast" }
+ordered-float = { version = "4.0", default-features = false }
+petgraph = "0.8.2"
