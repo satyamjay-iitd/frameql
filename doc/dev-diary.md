@@ -69,10 +69,8 @@ flowchart TD
 ## Week 2 (16-09-2025)
 1. Worked toward `syntax tree` to `IR` translation.
 
-  1. Wrote the type inference engine
-  2. Built Expr Syntactic Context. Expression's syntactic context determines the
-kinds of expressions that can appear at this location in the program, expected
-type of the expression, and variables visible within the given scope.
+    1. Wrote the type inference engine (`fn(Expr) -> Type`).
+    2. Built Expr Syntactic Context. Expression's syntactic context determines the kinds of expressions that can appear at this location in the program, expected type of the expression, and variables visible within the given scope.
 
 
 
