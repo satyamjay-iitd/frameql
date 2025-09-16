@@ -1,6 +1,6 @@
 use frameql_ast::{
-    AnnotatedDecl, Arg, Atom, AtomPositional, Attribute, BinaryOp, Constructor, Datalog, Decl,
-    Expr, ExternFn, Field, FnDef, ForPattern, FuncParam, Function, FunctionType, Identifier,
+    AnnotatedDecl, Atom, AtomPositional, Attribute, BinaryOp, Constructor, Datalog, Decl, Expr,
+    ExternFn, Field, FnArg, FnDef, ForPattern, FuncParam, Function, FunctionType, Identifier,
     Import, IndexedAtom, IoQualifier, NamedAtom, Pattern, PrimaryKey, Relation, RelationKind,
     RhsClause, RuleDecl, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName, Typedef, UnaryOp,
 };
@@ -400,14 +400,23 @@ fn parse_fn(pair: Pair<Rule>) -> Function {
     }
 }
 
-pub fn parse_arg(pair: Pair<Rule>) -> Arg {
+pub fn parse_arg(pair: Pair<Rule>) -> FnArg {
     assert_eq!(pair.as_rule(), Rule::arg);
     let mut inner = pair.into_inner();
 
-    let name = inner.next().unwrap().as_str().to_string();
+    // check for optional "mut"
+    let mut is_mut = false;
+    let first = inner.peek().unwrap();
+    if first.as_rule() == Rule::mut_kw {
+        // define a rule mut_kw = { "mut" }
+        inner.next();
+        is_mut = true;
+    }
+
+    let name = Identifier(inner.next().unwrap().as_str().to_string());
     let ty = parse_simple_typespec(inner.next().unwrap());
 
-    Arg { name, ty }
+    FnArg { name, ty, is_mut }
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -470,7 +479,7 @@ pub fn parse_primary_key(pair: Pair<Rule>) -> PrimaryKey {
     let _kw_primary = inner.next().unwrap();
     let _kw_key = inner.next().unwrap();
     let _open_paren = inner.next().unwrap();
-    let var_name = inner.next().unwrap().as_str().to_string();
+    let var_name = Identifier(inner.next().unwrap().as_str().to_string());
     let _close_paren = inner.next().unwrap();
     let expr = parse_expr(inner.next().unwrap());
 

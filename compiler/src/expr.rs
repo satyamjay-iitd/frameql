@@ -1,975 +1,1232 @@
-use frameql_ast::{Expr, Function, Identifier, Relation, RuleDecl, Term};
+use frameql_ast::{FnArg, Identifier};
+use ordered_float::OrderedFloat;
+
+use crate::{
+    Statics, func::Function, prog::FrameQLProgram, relation::Relation, rule::Rule, r#type::Type,
+    var::Var,
+};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum BOp {
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Lte,
+    Gte,
+    And,
+    Or,
+    Impl,
+    Plus,
+    Minus,
+    Mod,
+    Times,
+    Div,
+    ShiftR,
+    ShiftL,
+    BAnd,
+    BOr,
+    BXor,
+    Concat,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum UOp {
+    Not,
+    BNeg,
+    UMinus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Expr {
+    EVar(Identifier),
+    EApply {
+        func: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    EField {
+        struct_: Box<Expr>,
+        field: Identifier,
+    },
+    ETupField {
+        tuple: Box<Expr>,
+        field: usize,
+    },
+    EBool(bool),
+    EInt(i64),
+    EFloat(OrderedFloat<f64>),
+    EString(String),
+    EStruct {
+        name: Identifier,
+        fields: Vec<(Identifier, Expr)>,
+    },
+    ETuple(Vec<Expr>),
+    ESlice {
+        array: Box<Expr>,
+        high: u64,
+        low: u64,
+    },
+    EMatch {
+        clause: Box<Expr>,
+        body: Vec<(Expr, Expr)>,
+    },
+    EVarDecl(Identifier),
+    ESeq {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    EITE {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        else_: Box<Expr>,
+    },
+    EFor {
+        loop_var: Box<Expr>,
+        iter_: Box<Expr>,
+        body: Box<Expr>,
+    },
+    ESet {
+        lval: Box<Expr>,
+        rval: Box<Expr>,
+    },
+    EBreak,
+    EContinue,
+    EReturn(Box<Expr>),
+    EBinOp {
+        op: BOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    EUnOp {
+        op: UOp,
+        expr: Box<Expr>,
+    },
+    EBinding {
+        var: Identifier,
+        pattern: Box<Expr>,
+    },
+    ETyped {
+        expr: Box<Expr>,
+        spec: Type,
+    },
+    EAs {
+        expr: Box<Expr>,
+        spec: Type,
+    },
+    ERef(Box<Expr>),
+    ETry(Box<Expr>),
+    EClosure {
+        args: Vec<FnArg>,
+        ret_type: Option<Type>,
+        body: Box<Expr>,
+    },
+    EFunc {
+        name: Vec<Identifier>,
+    },
+    EPHolder,
+}
+
+impl Expr {
+    fn vars(&self, prog: &FrameQLProgram, ctx: &ECtx) -> Vec<Var> {
+        // The collector function: given a context and subexpression, return vars
+        let collect = |ctx_prime: &ECtx, e_prime: &Expr| -> Vec<Var> {
+            match e_prime {
+                Expr::EVar(name) => match prog.lookup_var(ctx_prime, name) {
+                    Some(var) => vec![var],
+                    None => vec![Var::ExprVar {
+                        var_ctx: ctx_prime.clone(),
+                        var_expr: Expr::EVar(name.clone()).into(),
+                    }],
+                },
+                _ => vec![],
+            }
+        };
+
+        let mut vars = expr_collect_ctx(
+            collect,
+            |mut a, mut b| {
+                a.append(&mut b);
+                a
+            },
+            ctx,
+            self,
+        );
+
+        vars.sort();
+        vars.dedup();
+        vars
+    }
+
+    pub(crate) fn expr_closure_args(&self) -> Vec<FnArg> {
+        match self {
+            Expr::EClosure { args, .. } => args.clone(),
+            _ => panic!("Shouldn't happen"),
+        }
+    }
+
+    pub(crate) fn is_const(&self) -> bool {
+        self.vars(None, None).is_empty()
+    }
+
+    pub fn field_expr_var(&self) -> Option<&Identifier> {
+        match self {
+            Expr::EVar(v) => Some(v),
+            Expr::ETyped { expr, .. } => expr.field_expr_var(),
+            Expr::EField { struct_, .. } => struct_.field_expr_var(),
+            Expr::ETupField { tuple, .. } => tuple.field_expr_var(),
+            _ => None,
+        }
+    }
+}
+
+pub trait ExprVisitor<T> {
+    #[allow(unused)]
+    fn visit_expr(&mut self, e: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_var(&mut self, n: &Identifier) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_apply(&mut self, func: &Expr, args: Vec<Expr>) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_field(&mut self, struct_: &Expr, field: &Identifier) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_tup_field(&mut self, tuple: &Expr, field: usize) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_bool(&mut self, val: &bool) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_int(&mut self, val: &u64) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_string(&mut self, val: &str) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_float(&mut self, val: &OrderedFloat<f64>) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_struc(&mut self, name: &Identifier, fields: &Vec<(Identifier, Expr)>) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_tuple(&mut self, tuple: &Vec<Expr>) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_slice(&mut self, array: &Expr, high: u64, low: u64) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_match(&mut self, clause: &Expr, body: &Vec<(Expr, Expr)>) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_var_decl(&mut self, ident: &Identifier) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_seq(&mut self, left: &Expr, right: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_ite(&mut self, cond: &Expr, then: &Expr, else_: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_for(&mut self, loop_var: &Expr, iter: &Expr, body: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_set(&mut self, lval: &Expr, rval: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_break(&mut self) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_continue(&mut self) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_return(&mut self, val: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_bin_op(&mut self, op: BOp, left: &Expr, right: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_un_op(&mut self, op: UOp, expr: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_binding(&mut self, var: &Identifier, pattern: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_typed(&mut self, expr: &Expr, spec: &Type) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_as(&mut self, expr: &Expr, spec: &Type) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_ref(&mut self, expr: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_try(&mut self, expr: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_closure(&mut self, args: &Vec<FnArg>, ret_type: Option<Type>, body: &Expr) -> T {
+        unimplemented!();
+    }
+    #[allow(unused)]
+    fn visit_fn(&mut self, name: &Vec<Identifier>) -> T {
+        unimplemented!();
+    }
+}
 
 /// Expression context: where an expression occurs, what variables are in scope,
 /// and what type is expected.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ECtx {
     /// Top-level context. Expressions cannot appear here.
-    CtxTop,
+    Top,
 
     /// Function definition: `function f(...) = {X}`
-    CtxFunc { ctx_func: Function },
+    Func(Function),
 
     /// Argument to an atom in the left-hand side of a rule:
     /// `Rel1[X] :- ...`
-    CtxRuleLAtom {
-        ctx_rule: RuleDecl,
-        ctx_head_idx: usize,
+    RuleLAtom {
+        rule: Rule,
+        head_idx: usize,
     },
 
     /// Location component of a rule head: `Rel1() @X :- ...`
-    CtxRuleLLocation {
-        ctx_rule: RuleDecl,
-        ctx_head_idx: usize,
+    RuleLLocation {
+        rule: Rule,
+        head_idx: usize,
     },
 
     /// Argument to a right-hand-side atom
-    CtxRuleRAtom {
-        ctx_rule: RuleDecl,
-        ctx_atom_idx: usize,
+    RuleRAtom {
+        rule: Rule,
+        idx: usize,
     },
 
     /// Filter or assignment expression in the RHS of a rule
-    CtxRuleRCond { ctx_rule: RuleDecl, ctx_idx: usize },
+    RuleRCond {
+        rule: Rule,
+        idx: usize,
+    },
 
     /// Right-hand side of a FlatMap clause in RHS of a rule
-    CtxRuleRFlatMap { ctx_rule: RuleDecl, ctx_idx: usize },
+    RuleRFlatMap {
+        rule: Rule,
+        idx: usize,
+    },
 
     /// Left-hand side of a FlatMap clause in RHS of a rule
-    CtxRuleRFlatMapVars { ctx_rule: RuleDecl, ctx_idx: usize },
-
-    /// Inspect clause in RHS of a rule
-    CtxRuleRInspect { ctx_rule: RuleDecl, ctx_idx: usize },
+    RuleRFlatMapVars {
+        rule: Rule,
+        idx: usize,
+    },
 
     /// Projection expression in a group_by clause in RHS of a rule
-    CtxRuleRProject { ctx_rule: RuleDecl, ctx_idx: usize },
+    RuleRProject {
+        rule: Rule,
+        idx: usize,
+    },
 
     /// Group-by expression in RHS of a rule
-    CtxRuleRGroupBy { ctx_rule: RuleDecl, ctx_idx: usize },
+    RuleRGroupBy {
+        rule: Rule,
+        idx: usize,
+    },
 
     /// Key expression
-    CtxKey { ctx_relation: Relation },
+    Key {
+        relation: Relation,
+    },
 
     /// Argument of a function call
-    CtxApplyArg {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
-        ctx_idx: usize,
+    ApplyArg {
+        par_expr: Expr,
+        par: Box<ECtx>,
+        idx: usize,
     },
 
     /// Function or closure being invoked
-    CtxApplyFunc {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ApplyFunc {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Field expression: `X.f`
-    CtxField {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Field {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Tuple field expression: `X.N`
-    CtxTupField {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    TupField {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument passed to a type constructor: `Cons(X, y, z)`
-    CtxStruct {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
-        ctx_arg: (usize, Identifier),
+    Struct {
+        par_expr: Expr,
+        par: Box<ECtx>,
+        arg: (usize, Identifier),
     },
 
     /// Argument passed to a tuple expression: `(X, y, z)`
-    CtxTuple {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
-        ctx_idx: usize,
+    Tuple {
+        par_expr: Expr,
+        par: Box<ECtx>,
+        idx: usize,
     },
 
-    /// Bit slice: `X[h:l]`
-    CtxSlice {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    /// Bit slice: `CtxTupFied[h:l]`
+    Slice {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a match expression: `match (X) {...}`
-    CtxMatchExpr {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    MatchExpr {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Match pattern: `match (...) {X: e1, ...}`
-    CtxMatchPat {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
-        ctx_idx: usize,
+    MatchPat {
+        par_expr: Expr,
+        par: Box<ECtx>,
+        idx: usize,
     },
 
     /// Value returned by a match clause: `match (...) {p1: X, ...}`
-    CtxMatchVal {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
-        ctx_idx: usize,
+    MatchVal {
+        par_expr: Expr,
+        par: Box<ECtx>,
+        idx: usize,
     },
 
     /// First expression in a sequence `X; y`
-    CtxSeq1 {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Seq1 {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Second expression in a sequence `y; X`
-    CtxSeq2 {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Seq2 {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `if (X) ... else ...`
-    CtxITEIf {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ITEIf {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `if (cond) X else ...`
-    CtxITEThen {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ITEThen {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `if (cond) ... else X`
-    CtxITEElse {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ITEElse {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `for (X in ..)`
-    CtxForVars {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ForVars {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `for (.. in e)`
-    CtxForIter {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ForIter {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// `for (.. in ..) e`
-    CtxForBody {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    ForBody {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Left-hand side of an assignment: `X = y`
-    CtxSetL {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    SetL {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Right-hand side of an assignment: `y = X`
-    CtxSetR {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    SetR {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a `return` statement
-    CtxReturn {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Return {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// First operand of a binary operator: `X op y`
-    CtxBinOpL {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    BinOpL {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Second operand of a binary operator: `y op X`
-    CtxBinOpR {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    BinOpR {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Operand of a unary operator: `op X`
-    CtxUnOp {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    UnOp {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Pattern of a @-expression `v@pat`
-    CtxBinding {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Binding {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a typed expression `X: t`
-    CtxTyped {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Typed {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a type cast expression `X as t`
-    CtxAs {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    As {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a &-pattern `&e`
-    CtxRef {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Ref {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Argument of a ?-expression `e?`
-    CtxTry {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Try {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
 
     /// Expression inside a closure
-    CtxClosure {
-        ctx_par_expr: Expr,
-        ctx_par: Box<ECtx>,
+    Closure {
+        par_expr: Expr,
+        par: Box<ECtx>,
     },
+
+    Undefined,
 }
 
+impl ECtx {
+    pub(crate) fn parent(&self) -> ECtx {
+        match self {
+            ECtx::RuleLAtom { .. }
+            | ECtx::RuleLLocation { .. }
+            | ECtx::RuleRAtom { .. }
+            | ECtx::RuleRCond { .. }
+            | ECtx::RuleRFlatMap { .. }
+            | ECtx::RuleRFlatMapVars { .. }
+            | ECtx::RuleRProject { .. }
+            | ECtx::RuleRGroupBy { .. }
+            | ECtx::Key { .. }
+            | ECtx::Func(_) => ECtx::Top,
+            ECtx::ApplyArg { par, .. }
+            | ECtx::ApplyFunc { par, .. }
+            | ECtx::Field { par, .. }
+            | ECtx::TupField { par, .. }
+            | ECtx::Struct { par, .. }
+            | ECtx::Tuple { par, .. }
+            | ECtx::Slice { par, .. }
+            | ECtx::MatchExpr { par, .. }
+            | ECtx::MatchPat { par, .. }
+            | ECtx::MatchVal { par, .. }
+            | ECtx::Seq1 { par, .. }
+            | ECtx::Seq2 { par, .. }
+            | ECtx::ITEIf { par, .. }
+            | ECtx::ITEThen { par, .. }
+            | ECtx::ITEElse { par, .. }
+            | ECtx::ForVars { par, .. }
+            | ECtx::ForIter { par, .. }
+            | ECtx::ForBody { par, .. }
+            | ECtx::SetL { par, .. }
+            | ECtx::SetR { par, .. }
+            | ECtx::Return { par, .. }
+            | ECtx::BinOpL { par, .. }
+            | ECtx::BinOpR { par, .. }
+            | ECtx::UnOp { par, .. }
+            | ECtx::Binding { par, .. }
+            | ECtx::Typed { par, .. }
+            | ECtx::As { par, .. }
+            | ECtx::Ref { par, .. }
+            | ECtx::Try { par, .. }
+            | ECtx::Closure { par, .. } => *par.clone(),
+            ECtx::Top => todo!(),
+            ECtx::Undefined => todo!(),
+        }
+    }
+
+    pub(crate) fn in_rule_rhs(&self) -> bool {
+        match self {
+            ECtx::RuleRAtom { .. } => true,
+            ECtx::Struct { par, .. }
+            | ECtx::Tuple { par, .. }
+            | ECtx::Typed { par, .. }
+            | ECtx::Binding { par, .. }
+            | ECtx::Ref { par, .. } => par.in_rule_rhs(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn expect_type(&self) -> Type {
+        match self {
+            ECtx::Typed { par_expr, .. } => match par_expr {
+                Expr::ETyped { spec, .. } => spec.clone(),
+                _ => panic!("Unknown type in context, {:?}", self),
+            },
+            _ => panic!("Unknown type in context, {:?}", self),
+        }
+    }
+}
+
+pub fn expr_fold<F>(mut f: F, expr: &Expr) -> Expr
+where
+    F: FnMut(&Expr) -> Expr,
+{
+    expr_fold_ctx(&mut |_, node| f(&node), &ECtx::Undefined, expr)
+}
 /// Depth-first fold of an expression with *syntactic context*.
-/// Mirrors the Haskell type:
-///   exprFoldCtxM :: (ECtx -> ExprNode b -> m b) -> ECtx -> Expr -> m b
-///
 /// - `f` is called *after* recursively folding children,
 ///   receiving the current `ctx` and a node whose children are already of type `B`.
-fn expr_fold_ctx_m_node<F>(
-    f: &mut F,
-    ctx: &ECtx,
-    n: &Expr, // ENode = ExprNode<Expr>
-) -> Expr
+pub(crate) fn expr_fold_ctx<F>(f: &mut F, ctx: &ECtx, expr: &Expr) -> Expr
 where
-    F: FnMut(&ECtx, Expr) -> Expr + Clone,
+    F: FnMut(&ECtx, Expr) -> Expr,
 {
-    match n {
-        Expr::Term(Term::Int(val)) => f(ctx, Expr::Term(Term::Int(*val))),
-        Expr::Term(Term::Bool(val)) => f(ctx, Expr::Term(Term::Bool(*val))),
-        Expr::Term(Term::String(val)) => f(ctx, Expr::Term(Term::String(val.clone()))),
-        Expr::Term(Term::Float(val)) => f(ctx, Expr::Term(Term::Float(*val))),
-        Expr::Term(Term::Vec(val)) => f(ctx, Expr::Term(Term::Vec(val.clone()))),
-        Expr::Term(Term::Map(val)) => f(ctx, Expr::Term(Term::Map(val.clone()))),
-        Expr::Term(Term::Var(ident)) => f(ctx, Expr::Term(Term::Var(ident.clone()))),
-        Expr::Term(Term::Tuple(ident)) => todo!(),
-        Expr::Term(Term::Match { scrutinee, clauses }) => {
-            let parent = n.clone();
-            let m_ctx = ECtx::CtxMatchExpr {
-                ctx_par_expr: parent.clone(),
-                ctx_par: Box::new(ctx.clone()),
+    match expr {
+        Expr::EVar(identifier) => f(&ctx, Expr::EVar(identifier.clone())),
+        Expr::EApply { func, args } => {
+            let ectx = ECtx::ApplyFunc {
+                par_expr: expr.clone(),
+                par: Box::new(ctx.clone()),
             };
-            let m_b = expr_fold_ctx_m_node(f, &m_ctx, scrutinee);
+            let func = expr_fold_ctx(f, &ectx, func);
 
-            let mut cs_b = Vec::with_capacity(clauses.len());
-            for (i, (pattern, e2)) in clauses.iter().enumerate() {
-                let pat_ctx = ECtx::CtxMatchPat {
-                    ctx_par_expr: parent.clone(),
-                    ctx_par: Box::new(ctx.clone()),
-                    ctx_idx: i,
-                };
-                let val_ctx = ECtx::CtxMatchVal {
-                    ctx_par_expr: parent.clone(),
-                    ctx_par: Box::new(ctx.clone()),
-                    ctx_idx: i,
-                };
-
-                let e1b = expr_fold_ctx_m_node(f, &pat_ctx, &pattern);
-                let e2b = expr_fold_ctx_m_node(f, &val_ctx, e2);
-                cs_b.push((e1b, e2b));
+            // fold args with indices
+            let mut new_args = Vec::with_capacity(args.len());
+            for (i, a) in args.into_iter().enumerate() {
+                let folded = expr_fold_ctx(
+                    f,
+                    &ECtx::ApplyArg {
+                        par_expr: expr.clone(),
+                        par: Box::new(ctx.clone()),
+                        idx: i,
+                    },
+                    a,
+                );
+                new_args.push(folded);
             }
 
             f(
                 ctx,
-                Expr::Term(Term::Match {
-                    scrutinee: Box::new(m_b),
-                    clauses: cs_b,
-                }),
+                Expr::EApply {
+                    func: Box::new(func),
+                    args: new_args,
+                },
             )
         }
-        Expr::Term(Term::IfThenElse {
-            cond,
-            then_term,
-            else_term,
-        }) => todo!(),
-        Expr::Term(Term::IfThenElse {
-            cond,
-            then_term,
-            else_term,
-        }) => todo!(),
-        Expr::Term(Term::For {
-            pattern,
-            iter,
+        Expr::EField { struct_, field } => {
+            // fold the inner struct expression
+            let struct_ = expr_fold_ctx(
+                f,
+                &ECtx::Field {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                struct_,
+            );
+
+            f(
+                ctx,
+                Expr::EField {
+                    struct_: Box::new(struct_),
+                    field: field.clone(),
+                },
+            )
+        }
+        Expr::ETupField { tuple, field } => {
+            // fold the inner tuple expr
+            let tuple = expr_fold_ctx(
+                f,
+                &ECtx::TupField {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                tuple,
+            );
+
+            // rebuild and apply f
+            f(
+                ctx,
+                Expr::ETupField {
+                    tuple: Box::new(tuple),
+                    field: *field,
+                },
+            )
+        }
+        Expr::EBool(val) => f(ctx, Expr::EBool(*val)),
+        Expr::EInt(val) => f(ctx, Expr::EInt(*val)),
+        Expr::EFloat(val) => f(ctx, Expr::EFloat(*val)),
+        Expr::EString(val) => f(ctx, Expr::EString(val.clone())),
+        Expr::EStruct { name, fields } => {
+            let mut new_fields = Vec::with_capacity(fields.len());
+
+            for (i, (fname, fl)) in fields.into_iter().enumerate() {
+                let fl_folded = expr_fold_ctx(
+                    f,
+                    // &ECtx::CtxStruct{expr.clone(), ctx.clone(), (i, fname.clone())},
+                    &ECtx::Struct {
+                        par_expr: expr.clone(),
+                        par: Box::new(ctx.clone()),
+                        arg: (i, fname.clone()),
+                    },
+                    fl,
+                );
+                new_fields.push((fname.clone(), fl_folded));
+            }
+
+            f(
+                ctx,
+                Expr::EStruct {
+                    name: name.clone(),
+                    fields: new_fields,
+                },
+            )
+        }
+        Expr::ETuple(exprs) => {
+            let mut new_exprs = Vec::with_capacity(exprs.len());
+
+            for (i, e) in exprs.into_iter().enumerate() {
+                let folded = expr_fold_ctx(
+                    f,
+                    &ECtx::Tuple {
+                        par_expr: expr.clone(),
+                        par: Box::new(ctx.clone()),
+                        idx: i,
+                    },
+                    e,
+                );
+                new_exprs.push(folded);
+            }
+
+            f(ctx, Expr::ETuple(new_exprs))
+        }
+        Expr::ESlice { array, high, low } => {
+            let array = expr_fold_ctx(
+                f,
+                &ECtx::Slice {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                array,
+            );
+
+            f(
+                ctx,
+                Expr::ESlice {
+                    array: Box::new(array),
+                    high: *high,
+                    low: *low,
+                },
+            )
+        }
+        Expr::EMatch { clause, body } => {
+            // Fold the match expression itself
+            let clause =
+                    // expr_fold_ctx_m(f, ECtx::CtxMatchExpr{expr.clone(), ctx.clone()}, *clause).await;
+                    expr_fold_ctx(f, &ECtx::MatchExpr{ par_expr: expr.clone(), par: Box::new(ctx.clone()) }, clause);
+
+            // Fold each (pattern, value) pair
+            let mut new_body = Vec::with_capacity(body.len());
+            for (i, (pat, val)) in body.into_iter().enumerate() {
+                let pat_folded = expr_fold_ctx(
+                    f,
+                    &ECtx::MatchPat {
+                        par_expr: expr.clone(),
+                        par: Box::new(ctx.clone()),
+                        idx: i,
+                    },
+                    pat,
+                );
+
+                let val_folded = expr_fold_ctx(
+                    f,
+                    &ECtx::MatchVal {
+                        par_expr: expr.clone(),
+                        par: Box::new(ctx.clone()),
+                        idx: i,
+                    },
+                    val,
+                );
+
+                new_body.push((pat_folded, val_folded));
+            }
+
+            f(
+                ctx,
+                Expr::EMatch {
+                    clause: Box::new(clause),
+                    body: new_body,
+                },
+            )
+        }
+        Expr::EVarDecl(identifier) => f(ctx, Expr::EVarDecl(identifier.clone())),
+        Expr::ESeq { left, right } => {
+            let left = expr_fold_ctx(
+                f,
+                &ECtx::Seq1 {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                left,
+            );
+
+            let right = expr_fold_ctx(
+                f,
+                &ECtx::Seq2 {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                right,
+            );
+
+            f(
+                ctx,
+                Expr::ESeq {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+            )
+        }
+        Expr::EITE { cond, then, else_ } => {
+            let cond = expr_fold_ctx(
+                f,
+                &ECtx::ITEIf {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                cond,
+            );
+
+            let then_branch = expr_fold_ctx(
+                f,
+                &ECtx::ITEThen {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                then,
+            );
+
+            let else_branch = expr_fold_ctx(
+                f,
+                &ECtx::ITEElse {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                else_,
+            );
+
+            f(
+                ctx,
+                Expr::EITE {
+                    cond: Box::new(cond),
+                    then: Box::new(then_branch),
+                    else_: Box::new(else_branch),
+                },
+            )
+        }
+        Expr::EFor {
+            loop_var,
+            iter_,
             body,
-        }) => {
-            todo!()
+        } => {
+            let loop_var = expr_fold_ctx(
+                f,
+                &ECtx::ForVars {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                loop_var,
+            );
+
+            let iter_ = expr_fold_ctx(
+                f,
+                &ECtx::ForIter {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                iter_,
+            );
+
+            let body = expr_fold_ctx(
+                f,
+                &ECtx::ForBody {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                body,
+            );
+
+            f(
+                ctx,
+                Expr::EFor {
+                    loop_var: Box::new(loop_var),
+                    iter_: Box::new(iter_),
+                    body: Box::new(body),
+                },
+            )
         }
-        Expr::Term(Term::Continue) => {
-            todo!()
+        Expr::ESet { lval, rval } => {
+            // fold RHS first
+            let rval = expr_fold_ctx(
+                f,
+                &ECtx::SetR {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                rval,
+            );
+
+            // then LHS
+            let lval = expr_fold_ctx(
+                f,
+                &ECtx::SetL {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                lval,
+            );
+
+            f(
+                ctx,
+                Expr::ESet {
+                    lval: Box::new(lval),
+                    rval: Box::new(rval),
+                },
+            )
         }
-        Expr::Term(Term::Break) => {
-            todo!()
+        Expr::EBreak => f(ctx, Expr::EBreak),
+        Expr::EContinue => f(ctx, Expr::EContinue),
+        Expr::EReturn(expr) => {
+            let val = expr_fold_ctx(
+                f,
+                &ECtx::Return {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(ctx, Expr::EReturn(Box::new(val)))
         }
-        Expr::Term(Term::Return(ret)) => {
-            todo!()
+        Expr::EBinOp { op, left, right } => {
+            let left = expr_fold_ctx(
+                f,
+                &ECtx::BinOpL {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                left,
+            );
+
+            let right = expr_fold_ctx(
+                f,
+                &ECtx::BinOpR {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                right,
+            );
+
+            f(
+                ctx,
+                Expr::EBinOp {
+                    op: *op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+            )
         }
-        Expr::Term(Term::VarDecl(ide)) => {
-            todo!()
+        Expr::EUnOp { op, expr } => {
+            let expr = expr_fold_ctx(
+                f,
+                &ECtx::UnOp {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(
+                ctx,
+                Expr::EUnOp {
+                    op: *op,
+                    expr: Box::new(expr),
+                },
+            )
         }
-        Expr::Term(Term::Lambda {
-            params,
-            return_ty,
-            body,
-        }) => {
-            todo!()
+        Expr::EBinding { var, pattern } => {
+            let pattern = expr_fold_ctx(
+                f,
+                &ECtx::Binding {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                pattern,
+            );
+
+            f(
+                ctx,
+                Expr::EBinding {
+                    var: var.clone(),
+                    pattern: Box::new(pattern),
+                },
+            )
         }
-        Expr::Term(Term::Wildcard) => {
-            todo!()
+        Expr::ETyped { expr, spec } => {
+            let expr = expr_fold_ctx(
+                f,
+                &ECtx::Typed {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(
+                ctx,
+                Expr::ETyped {
+                    expr: Box::new(expr),
+                    spec: spec.clone(),
+                },
+            )
         }
-        Expr::Term(Term::ConsTerm {
-            name,
+        Expr::EAs { expr, spec } => {
+            let expr = expr_fold_ctx(
+                f,
+                &ECtx::As {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(
+                ctx,
+                Expr::EAs {
+                    expr: Box::new(expr),
+                    spec: spec.clone(),
+                },
+            )
+        }
+        Expr::ERef(expr) => {
+            let expr = expr_fold_ctx(
+                f,
+                &ECtx::Ref {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(ctx, Expr::ERef(Box::new(expr)))
+        }
+        Expr::ETry(expr) => {
+            let expr = expr_fold_ctx(
+                f,
+                &ECtx::Try {
+                    par_expr: *expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                expr,
+            );
+
+            f(ctx, Expr::ETry(Box::new(expr)))
+        }
+        Expr::EClosure {
             args,
-            named_args,
-        }) => {
-            todo!()
+            ret_type,
+            body,
+        } => {
+            let body = expr_fold_ctx(
+                f,
+                &ECtx::Closure {
+                    par_expr: expr.clone(),
+                    par: Box::new(ctx.clone()),
+                },
+                body,
+            );
+
+            f(
+                ctx,
+                Expr::EClosure {
+                    args: args.clone(),
+                    ret_type: ret_type.clone(),
+                    body: Box::new(body),
+                },
+            )
         }
-        Expr::Unary { op, rhs } => todo!(),
-        Expr::Binary { lhs, op, rhs } => todo!(),
-        Expr::Slice { parent, index } => todo!(),
-        Expr::TypeAnnotation { parent, ty } => todo!(),
-        Expr::FCall { func, args } => todo!(),
-        Expr::DotFCall { parent, name, args } => todo!(),
-        Expr::Field { base, field } => todo!(),
-        Expr::TupleIndex { base, index } => todo!(),
-        Expr::Cast { base, ty } => todo!(),
-        Expr::Try(expr) => todo!(),
+        Expr::EFunc { name } => f(ctx, Expr::EFunc { name: name.clone() }),
+        Expr::EPHolder => f(ctx, Expr::EPHolder),
     }
-    //     Term(Term::Var(ident)) => f(ctx, Expr::Term(Term::Var(ident.clone()))),
-
-    //     EApply {
-    //         expr_pos,
-    //         expr_func,
-    //         expr_args,
-    //     } => {
-    //         // Parent node for context
-    //         let parent = n.clone();
-    //         let func_ctx = ECtx::CtxApplyFunc {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let func_b = expr_fold_ctx_m(f, &func_ctx, expr_func)?;
-
-    //         let mut args_b = Vec::with_capacity(expr_args.len());
-    //         for (i, a) in expr_args.iter().enumerate() {
-    //             let arg_ctx = ECtx::CtxApplyArg {
-    //                 ctx_par_expr: parent.clone(),
-    //                 ctx_par: Box::new(ctx.clone()),
-    //                 ctx_idx: i,
-    //             };
-    //             args_b.push(expr_fold_ctx_m(f, &arg_ctx, a)?);
-    //         }
-
-    //         f(
-    //             ctx,
-    //             EApply {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_func: func_b,
-    //                 expr_args: args_b,
-    //             },
-    //         )
-    //     }
-
-    //     EField {
-    //         expr_pos,
-    //         expr_struct,
-    //         expr_field,
-    //     } => {
-    //         let parent = n.clone();
-    //         let s_ctx = ECtx::CtxField {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let s_b = expr_fold_ctx_m(f, &s_ctx, expr_struct)?;
-    //         f(
-    //             ctx,
-    //             EField {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_struct: s_b,
-    //                 expr_field: expr_field.clone(),
-    //             },
-    //         )
-    //     }
-
-    //     ETupField {
-    //         expr_pos,
-    //         expr_tuple,
-    //         expr_tup_field,
-    //     } => {
-    //         let parent = n.clone();
-    //         let s_ctx = ECtx::CtxTupField {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let s_b = expr_fold_ctx_m(f, &s_ctx, expr_tuple)?;
-    //         f(
-    //             ctx,
-    //             ETupField {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_tuple: s_b,
-    //                 expr_tup_field: *expr_tup_field,
-    //             },
-    //         )
-    //     }
-
-    //     EBool {
-    //         expr_pos,
-    //         expr_bval,
-    //     } => f(
-    //         ctx,
-    //         EBool {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_bval: *expr_bval,
-    //         },
-    //     ),
-
-    //     EInt {
-    //         expr_pos,
-    //         expr_ival,
-    //     } => f(
-    //         ctx,
-    //         EInt {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_ival: *expr_ival,
-    //         },
-    //     ),
-
-    //     EDouble {
-    //         expr_pos,
-    //         expr_dval,
-    //     } => f(
-    //         ctx,
-    //         EDouble {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_dval: *expr_dval,
-    //         },
-    //     ),
-
-    //     EFloat {
-    //         expr_pos,
-    //         expr_fval,
-    //     } => f(
-    //         ctx,
-    //         EFloat {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_fval: *expr_fval,
-    //         },
-    //     ),
-
-    //     EString {
-    //         expr_pos,
-    //         expr_string,
-    //     } => f(
-    //         ctx,
-    //         EString {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_string: expr_string.clone(),
-    //         },
-    //     ),
-
-    //     EBit {
-    //         expr_pos,
-    //         expr_width,
-    //         expr_ival,
-    //     } => f(
-    //         ctx,
-    //         EBit {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_width: *expr_width,
-    //             expr_ival: *expr_ival,
-    //         },
-    //     ),
-
-    //     ESigned {
-    //         expr_pos,
-    //         expr_width,
-    //         expr_ival,
-    //     } => f(
-    //         ctx,
-    //         ESigned {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_width: *expr_width,
-    //             expr_ival: *expr_ival,
-    //         },
-    //     ),
-
-    //     EStruct {
-    //         expr_pos,
-    //         expr_constructor,
-    //         expr_struct_fields,
-    //     } => {
-    //         let parent = n.clone();
-    //         let mut fs_b = Vec::with_capacity(expr_struct_fields.len());
-    //         for (i, (fname, fl)) in expr_struct_fields.iter().enumerate() {
-    //             let field_ctx = ECtx::CtxStruct {
-    //                 ctx_par_expr: parent.clone(),
-    //                 ctx_par: Box::new(ctx.clone()),
-    //                 ctx_arg: (i, fname.clone()),
-    //             };
-    //             let fl_b = expr_fold_ctx_m(f, &field_ctx, fl)?;
-    //             fs_b.push((fname.clone(), fl_b));
-    //         }
-    //         f(
-    //             ctx,
-    //             EStruct {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_constructor: expr_constructor.clone(),
-    //                 expr_struct_fields: fs_b,
-    //             },
-    //         )
-    //     }
-
-    //     ETuple {
-    //         expr_pos,
-    //         expr_tuple_fields,
-    //     } => {
-    //         let parent = n.clone();
-    //         let mut fs_b = Vec::with_capacity(expr_tuple_fields.len());
-    //         for (i, fl) in expr_tuple_fields.iter().enumerate() {
-    //             let tup_ctx = ECtx::CtxTuple {
-    //                 ctx_par_expr: parent.clone(),
-    //                 ctx_par: Box::new(ctx.clone()),
-    //                 ctx_idx: i,
-    //             };
-    //             fs_b.push(expr_fold_ctx_m(f, &tup_ctx, fl)?);
-    //         }
-    //         f(
-    //             ctx,
-    //             ETuple {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_tuple_fields: fs_b,
-    //             },
-    //         )
-    //     }
-
-    //     ESlice {
-    //         expr_pos,
-    //         expr_op,
-    //         expr_h,
-    //         expr_l,
-    //     } => {
-    //         let parent = n.clone();
-    //         let v_ctx = ECtx::CtxSlice {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let v_b = expr_fold_ctx_m(f, &v_ctx, expr_op)?;
-    //         f(
-    //             ctx,
-    //             ESlice {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_op: v_b,
-    //                 expr_h: *expr_h,
-    //                 expr_l: *expr_l,
-    //             },
-    //         )
-    //     }
-
-    //     EMatch {
-    //         expr_pos,
-    //         expr_match_expr,
-    //         expr_cases,
-    //     } => {
-    //         let parent = n.clone();
-    //         let m_ctx = ECtx::CtxMatchExpr {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let m_b = expr_fold_ctx_m(f, &m_ctx, expr_match_expr)?;
-
-    //         let mut cs_b = Vec::with_capacity(expr_cases.len());
-    //         for (i, (e1, e2)) in expr_cases.iter().enumerate() {
-    //             let pat_ctx = ECtx::CtxMatchPat {
-    //                 ctx_par_expr: parent.clone(),
-    //                 ctx_par: Box::new(ctx.clone()),
-    //                 ctx_idx: i,
-    //             };
-    //             let val_ctx = ECtx::CtxMatchVal {
-    //                 ctx_par_expr: parent.clone(),
-    //                 ctx_par: Box::new(ctx.clone()),
-    //                 ctx_idx: i,
-    //             };
-    //             let e1b = expr_fold_ctx_m(f, &pat_ctx, e1)?;
-    //             let e2b = expr_fold_ctx_m(f, &val_ctx, e2)?;
-    //             cs_b.push((e1b, e2b));
-    //         }
-
-    //         f(
-    //             ctx,
-    //             EMatch {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_match_expr: m_b,
-    //                 expr_cases: cs_b,
-    //             },
-    //         )
-    //     }
-
-    //     EVarDecl {
-    //         expr_pos,
-    //         expr_vname,
-    //     } => f(
-    //         ctx,
-    //         EVarDecl {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_vname: expr_vname.clone(),
-    //         },
-    //     ),
-
-    //     ESeq {
-    //         expr_pos,
-    //         expr_left,
-    //         expr_right,
-    //     } => {
-    //         let parent = n.clone();
-    //         let l_ctx = ECtx::CtxSeq1 {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let r_ctx = ECtx::CtxSeq2 {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let l_b = expr_fold_ctx_m(f, &l_ctx, expr_left)?;
-    //         let r_b = expr_fold_ctx_m(f, &r_ctx, expr_right)?;
-    //         f(
-    //             ctx,
-    //             ESeq {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_left: l_b,
-    //                 expr_right: r_b,
-    //             },
-    //         )
-    //     }
-
-    //     EITE {
-    //         expr_pos,
-    //         expr_cond,
-    //         expr_then,
-    //         expr_else,
-    //     } => {
-    //         let parent = n.clone();
-    //         let if_ctx = ECtx::CtxITEIf {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let then_ctx = ECtx::CtxITEThen {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let else_ctx = ECtx::CtxITEElse {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let c_b = expr_fold_ctx_m(f, &if_ctx, expr_cond)?;
-    //         let t_b = expr_fold_ctx_m(f, &then_ctx, expr_then)?;
-    //         let e_b = expr_fold_ctx_m(f, &else_ctx, expr_else)?;
-    //         f(
-    //             ctx,
-    //             EITE {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_cond: c_b,
-    //                 expr_then: t_b,
-    //                 expr_else: e_b,
-    //             },
-    //         )
-    //     }
-
-    //     EFor {
-    //         expr_pos,
-    //         expr_loop_vars,
-    //         expr_iter,
-    //         expr_body,
-    //     } => {
-    //         let parent = n.clone();
-    //         let vars_ctx = ECtx::CtxForVars {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let iter_ctx = ECtx::CtxForIter {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let body_ctx = ECtx::CtxForBody {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let v_b = expr_fold_ctx_m(f, &vars_ctx, expr_loop_vars)?;
-    //         let i_b = expr_fold_ctx_m(f, &iter_ctx, expr_iter)?;
-    //         let b_b = expr_fold_ctx_m(f, &body_ctx, expr_body)?;
-    //         f(
-    //             ctx,
-    //             EFor {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_loop_vars: v_b,
-    //                 expr_iter: i_b,
-    //                 expr_body: b_b,
-    //             },
-    //         )
-    //     }
-
-    //     ESet {
-    //         expr_pos,
-    //         expr_lval,
-    //         expr_rval,
-    //     } => {
-    //         // Haskell note: fold RHS first (helps with typing checks)
-    //         let parent = n.clone();
-    //         let r_ctx = ECtx::CtxSetR {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let l_ctx = ECtx::CtxSetL {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let r_b = expr_fold_ctx_m(f, &r_ctx, expr_rval)?;
-    //         let l_b = expr_fold_ctx_m(f, &l_ctx, expr_lval)?;
-    //         f(
-    //             ctx,
-    //             ESet {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_lval: l_b,
-    //                 expr_rval: r_b,
-    //             },
-    //         )
-    //     }
-
-    //     EContinue { expr_pos } => f(
-    //         ctx,
-    //         EContinue {
-    //             expr_pos: expr_pos.clone(),
-    //         },
-    //     ),
-    //     EBreak { expr_pos } => f(
-    //         ctx,
-    //         EBreak {
-    //             expr_pos: expr_pos.clone(),
-    //         },
-    //     ),
-
-    //     EReturn {
-    //         expr_pos,
-    //         expr_ret_val,
-    //     } => {
-    //         let parent = n.clone();
-    //         let ret_ctx = ECtx::CtxReturn {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let v_b = expr_fold_ctx_m(f, &ret_ctx, expr_ret_val)?;
-    //         f(
-    //             ctx,
-    //             EReturn {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_ret_val: v_b,
-    //             },
-    //         )
-    //     }
-
-    //     EBinOp {
-    //         expr_pos,
-    //         expr_bop,
-    //         expr_left,
-    //         expr_right,
-    //     } => {
-    //         let parent = n.clone();
-    //         let l_ctx = ECtx::CtxBinOpL {
-    //             ctx_par_expr: parent.clone(),
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let r_ctx = ECtx::CtxBinOpR {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let l_b = expr_fold_ctx_m(f, &l_ctx, expr_left)?;
-    //         let r_b = expr_fold_ctx_m(f, &r_ctx, expr_right)?;
-    //         f(
-    //             ctx,
-    //             EBinOp {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_bop: expr_bop.clone(),
-    //                 expr_left: l_b,
-    //                 expr_right: r_b,
-    //             },
-    //         )
-    //     }
-
-    //     EUnOp {
-    //         expr_pos,
-    //         expr_uop,
-    //         expr_op,
-    //     } => {
-    //         let parent = n.clone();
-    //         let x_ctx = ECtx::CtxUnOp {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &x_ctx, expr_op)?;
-    //         f(
-    //             ctx,
-    //             EUnOp {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_uop: expr_uop.clone(),
-    //                 expr_op: x_b,
-    //             },
-    //         )
-    //     }
-
-    //     EPHolder { expr_pos } => f(
-    //         ctx,
-    //         EPHolder {
-    //             expr_pos: expr_pos.clone(),
-    //         },
-    //     ),
-
-    //     EBinding {
-    //         expr_pos,
-    //         expr_var,
-    //         expr_pattern,
-    //     } => {
-    //         let parent = n.clone();
-    //         let b_ctx = ECtx::CtxBinding {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &b_ctx, expr_pattern)?;
-    //         f(
-    //             ctx,
-    //             EBinding {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_var: expr_var.clone(),
-    //                 expr_pattern: x_b,
-    //             },
-    //         )
-    //     }
-
-    //     ETyped {
-    //         expr_pos,
-    //         expr_expr,
-    //         expr_tspec,
-    //     } => {
-    //         let parent = n.clone();
-    //         let t_ctx = ECtx::CtxTyped {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &t_ctx, expr_expr)?;
-    //         f(
-    //             ctx,
-    //             ETyped {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_expr: x_b,
-    //                 expr_tspec: expr_tspec.clone(),
-    //             },
-    //         )
-    //     }
-
-    //     EAs {
-    //         expr_pos,
-    //         expr_expr,
-    //         expr_tspec,
-    //     } => {
-    //         let parent = n.clone();
-    //         let a_ctx = ECtx::CtxAs {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &a_ctx, expr_expr)?;
-    //         f(
-    //             ctx,
-    //             EAs {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_expr: x_b,
-    //                 expr_tspec: expr_tspec.clone(),
-    //             },
-    //         )
-    //     }
-
-    //     ERef {
-    //         expr_pos,
-    //         expr_pattern,
-    //     } => {
-    //         let parent = n.clone();
-    //         let r_ctx = ECtx::CtxRef {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &r_ctx, expr_pattern)?;
-    //         f(
-    //             ctx,
-    //             ERef {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_pattern: x_b,
-    //             },
-    //         )
-    //     }
-
-    //     ETry {
-    //         expr_pos,
-    //         expr_expr,
-    //     } => {
-    //         let parent = n.clone();
-    //         let t_ctx = ECtx::CtxTry {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &t_ctx, expr_expr)?;
-    //         f(
-    //             ctx,
-    //             ETry {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_expr: x_b,
-    //             },
-    //         )
-    //     }
-
-    //     EClosure {
-    //         expr_pos,
-    //         expr_closure_args,
-    //         expr_closure_type,
-    //         expr_expr,
-    //     } => {
-    //         let parent = n.clone();
-    //         let c_ctx = ECtx::CtxClosure {
-    //             ctx_par_expr: parent,
-    //             ctx_par: Box::new(ctx.clone()),
-    //         };
-    //         let x_b = expr_fold_ctx_m(f, &c_ctx, expr_expr)?;
-    //         f(
-    //             ctx,
-    //             EClosure {
-    //                 expr_pos: expr_pos.clone(),
-    //                 expr_closure_args: expr_closure_args.clone(),
-    //                 expr_closure_type: expr_closure_type.clone(),
-    //                 expr_expr: x_b,
-    //             },
-    //         )
-    //     }
-
-    //     EFunc {
-    //         expr_pos,
-    //         expr_func_name,
-    //     } => f(
-    //         ctx,
-    //         EFunc {
-    //             expr_pos: expr_pos.clone(),
-    //             expr_func_name: expr_func_name.clone(),
-    //         },
-    //     ),
-    // }
 }
+
+pub fn expr_collect_ctx<F, Op, B>(mut f: F, op: Op, ctx: &ECtx, e: &Expr) -> B
+where
+    F: FnMut(&ECtx, &Expr) -> B,
+    Op: FnMut(B, B) -> B + Copy,
+    B: Clone,
+{
+    // Recursive helper
+    fn go<F, Op, B>(f: &mut F, mut op: Op, ctx: &ECtx, e: &Expr) -> B
+    where
+        F: FnMut(&ECtx, &Expr) -> B,
+        Op: FnMut(B, B) -> B + Copy,
+        B: Clone,
+    {
+        let x_prime = f(ctx, e);
+
+        match e {
+            Expr::EVar(_) => x_prime,
+            Expr::EApply { func, args } => {
+                let mut acc = op.clone()(x_prime.clone(), go(f, op, ctx, func));
+                for arg in args {
+                    acc = op.clone()(acc, go(f, op, ctx, arg));
+                }
+                acc
+            }
+            Expr::EField { struct_, .. } => op.clone()(x_prime, go(f, op, ctx, struct_)),
+            Expr::ETupField { tuple, .. } => op.clone()(x_prime, go(f, op, ctx, tuple)),
+            Expr::EBool(_)
+            | Expr::EInt(_)
+            | Expr::EFloat(_)
+            | Expr::EString(_)
+            | Expr::EBreak
+            | Expr::EContinue => x_prime,
+            Expr::EStruct { fields, .. } => fields
+                .iter()
+                .fold(x_prime, |a, (_, sub)| op.clone()(a, go(f, op, ctx, sub))),
+            Expr::ETuple(elems) => elems
+                .iter()
+                .fold(x_prime, |a, sub| op.clone()(a, go(f, op, ctx, sub))),
+            Expr::ESlice { array, .. } => op.clone()(x_prime, go(f, op, ctx, array)),
+            Expr::EMatch { clause, body } => {
+                let acc = op.clone()(x_prime.clone(), go(f, op, ctx, clause));
+                body.iter().fold(acc, |a, (p, v)| {
+                    let a = op.clone()(a, go(f, op, ctx, p));
+                    op.clone()(a, go(f, op, ctx, v))
+                })
+            }
+            Expr::EVarDecl(_) => x_prime,
+            Expr::ESeq { left, right }
+            | Expr::ESet {
+                lval: left,
+                rval: right,
+            }
+            | Expr::EBinOp { left, right, .. } => {
+                let l_val = go(f, op, ctx, left);
+                let r_val = go(f, op, ctx, right);
+                op.clone()(op(x_prime, l_val), r_val)
+            }
+            Expr::EITE { cond, then, else_ } => {
+                let i_val = go(f, op, ctx, cond);
+                let t_val = go(f, op, ctx, then);
+                let el_val = go(f, op, ctx, else_);
+                op.clone()(op.clone()(op(x_prime, i_val), t_val), el_val)
+            }
+            Expr::EFor {
+                loop_var,
+                iter_,
+                body,
+            } => {
+                let v_val = go(f, op, ctx, loop_var);
+                let i_val = go(f, op, ctx, iter_);
+                let b_val = go(f, op, ctx, body);
+                op.clone()(op.clone()(op(x_prime, v_val), i_val), b_val)
+            }
+            Expr::EReturn(expr)
+            | Expr::EUnOp { expr, .. }
+            | Expr::ETyped { expr, .. }
+            | Expr::EAs { expr, .. }
+            | Expr::ERef(expr)
+            | Expr::ETry(expr)
+            | Expr::EClosure { body: expr, .. } => {
+                let v_val = go(f, op, ctx, expr);
+                op(x_prime, v_val)
+            }
+            Expr::EBinding { pattern, .. } => {
+                let pat_val = go(f, op, ctx, pattern);
+                op(x_prime, pat_val)
+            }
+            Expr::EFunc { .. } => x_prime,
+            Expr::EPHolder => x_prime,
+        }
+    }
+
+    go(&mut f, op, ctx, e)
+}
+
+// instance WithType Type where
+//     typ = id
+//     setType _ t = t
+
+// instance WithType Field where
+//     typ = fieldType
+//     setType f t = f { fieldType = t }
+
+// instance WithType FuncArg where
+//     typ = atypeType . argType
+//     setType a t = a { argType = (argType a){atypeType = t} }
+
+// instance WithType ArgType where
+//     typ = atypeType
+//     setType a t = a { atypeType = t }
+
+// instance WithType Relation where
+//     typ = relType
+//     setType r t = r { relType = t }

@@ -143,7 +143,7 @@ function = {
 }
 
 arg_list = { arg ~ ("," ~ arg)* }
-arg      = { arg_name ~ ":" ~ simple_type_spec }
+arg      = { "mut"? ~ arg_name ~ ":" ~ simple_type_spec }
 
 ///////////////////////////////////////////////////////////////////////
 ///                            RELATION

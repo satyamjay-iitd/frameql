@@ -1,9 +1,18 @@
+use std::fmt;
+
 ///////////////////////////////////////////////////////////////////////
 ///                            IDENTIFIER
 ///////////////////////////////////////////////////////////////////////
+use ordered_float::OrderedFloat;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Identifier(pub String);
+
+impl fmt::Display for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl Identifier {
     pub fn as_str(&self) -> &str {
@@ -15,7 +24,7 @@ impl Identifier {
 ///                            IMPORT
 ///////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Import {
     pub module_path: Vec<Identifier>,
     pub alias: Option<Identifier>,
@@ -24,7 +33,7 @@ pub struct Import {
 ///////////////////////////////////////////////////////////////////////
 ///                            TYPE
 ///////////////////////////////////////////////////////////////////////
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Typedef {
     Regular {
         name: Identifier,
@@ -37,10 +46,10 @@ pub enum Typedef {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarName(pub Identifier);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TypeSpec {
     BigInt,
     Bool,
@@ -56,7 +65,7 @@ pub enum TypeSpec {
     Var(TypeVarName),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SimpleTypeSpec {
     BigInt,
     Bool,
@@ -70,39 +79,39 @@ pub enum SimpleTypeSpec {
     Function(FunctionType),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionType {
     pub params: Vec<FuncParam>,
     pub ret: Option<Box<TypeSpec>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FuncParam {
     pub mutable: bool,
     pub ty: TypeSpec,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeAlias {
     pub name: Identifier,
     pub args: Vec<TypeSpec>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Constructor {
     pub attributes: Vec<Attribute>,
     pub name: Identifier,
     pub fields: Vec<Field>, // empty if no { .. }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Field {
     pub attributes: Vec<Attribute>,
     pub name: Identifier,
     pub ty: SimpleTypeSpec,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Attribute {
     pub name: Identifier,
     pub value: Expr,
@@ -111,44 +120,75 @@ pub struct Attribute {
 ///////////////////////////////////////////////////////////////////////
 ///                            FUNCTION
 ///////////////////////////////////////////////////////////////////////
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Function {
     FnDef(FnDef),
     ExternFn(ExternFn),
 }
+impl Function {
+    pub fn args(&self) -> &Vec<FnArg> {
+        match self {
+            Function::FnDef(fn_def) => &fn_def.args,
+            Function::ExternFn(extern_fn) => &extern_fn.args,
+        }
+    }
 
-#[derive(Debug, Clone, PartialEq)]
+    pub fn ret_type(&self) -> TypeSpec {
+        match self {
+            Function::FnDef(fn_def) => fn_def.return_type.clone(),
+            Function::ExternFn(extern_fn) => extern_fn.return_type.clone(),
+        }
+    }
+
+    pub fn mutable_args(&self) -> Vec<FnArg> {
+        self.args()
+            .iter()
+            .cloned()
+            .filter(|arg| arg.is_mut)
+            .collect()
+    }
+    pub fn immutable_args(&self) -> Vec<FnArg> {
+        self.args()
+            .iter()
+            .cloned()
+            .filter(|arg| !arg.is_mut)
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FnDef {
     pub name: String,
-    pub args: Vec<Arg>,
+    pub args: Vec<FnArg>,
     pub return_type: TypeSpec,
     pub body: Expr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExternFn {
     pub name: String,
-    pub args: Vec<Arg>,
+    pub args: Vec<FnArg>,
     pub return_type: TypeSpec,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Arg {
-    pub name: String,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FnArg {
+    pub name: Identifier,
     pub ty: SimpleTypeSpec,
+    pub is_mut: bool,
 }
 
 ///////////////////////////////////////////////////////////////////////
 ///                            RELATION
 ///////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IoQualifier {
     Input,
     Output,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Relation {
     pub qualifier: Option<IoQualifier>,
     pub name: String,
@@ -156,15 +196,15 @@ pub struct Relation {
     pub primary_key: Option<PrimaryKey>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RelationKind {
-    Args(Vec<Arg>),
+    Args(Vec<FnArg>),
     Typed(TypeSpec),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PrimaryKey {
-    pub var_name: String,
+    pub var_name: Identifier,
     pub expr: Expr,
 }
 
@@ -172,7 +212,7 @@ pub struct PrimaryKey {
 ///                            EXPRESSION
 ///////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Expr {
     Term(Term),
     Unary {
@@ -216,12 +256,12 @@ pub enum Expr {
     Try(Box<Expr>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Term {
     Int(i64),
     Bool(bool),
     String(String),
-    Float(f64),
+    Float(OrderedFloat<f64>),
     Vec(Vec<Expr>),
     Tuple(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
@@ -257,7 +297,7 @@ pub enum Term {
     Wildcard,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Pattern {
     Tuple(Vec<Pattern>),
     Cons {
@@ -275,7 +315,7 @@ pub enum Pattern {
 impl Pattern {
     pub fn to_expr(&self) -> Expr {
         match self {
-            Pattern::Tuple(patterns) => todo!(),
+            Pattern::Tuple(_) => todo!(),
             Pattern::Cons {
                 name,
                 args,
@@ -288,8 +328,8 @@ impl Pattern {
                     .map(|(name, val)| (name.clone(), val.to_expr()))
                     .collect(),
             }),
-            Pattern::VarDecl(identifier) => todo!(),
-            Pattern::Var(identifier) => todo!(),
+            Pattern::VarDecl(_) => todo!(),
+            Pattern::Var(_) => todo!(),
             Pattern::Bool(_) => todo!(),
             Pattern::String(_) => todo!(),
             Pattern::Int(_) => todo!(),
@@ -298,7 +338,7 @@ impl Pattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ForPattern {
     Tuple(Vec<Pattern>),
     Cons {
@@ -311,14 +351,14 @@ pub enum ForPattern {
     Wildcard,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum UnaryOp {
     Neg,
     Not,
     BitNot,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BinaryOp {
     Impl,
     Assign,
@@ -345,40 +385,40 @@ pub enum BinaryOp {
 ///////////////////////////////////////////////////////////////////////
 ///                            RULE
 ///////////////////////////////////////////////////////////////////////
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RuleDecl {
     pub head: Vec<Atom>,
     pub body: Vec<RhsClause>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Atom {
     Positional(AtomPositional),
     Named(NamedAtom),
     Indexed(IndexedAtom),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AtomPositional {
     pub binding: Option<Identifier>, // `x in R(...)`
     pub rel: Identifier,
     pub args: Vec<Expr>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NamedAtom {
     pub binding: Option<Identifier>,
     pub rel: Identifier,
     pub args: Vec<(Identifier, Expr)>, // .field = expr
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IndexedAtom {
     pub rel: Identifier,
     pub index: Expr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RhsClause {
     Atom(Atom),
     Not(Atom),
@@ -395,7 +435,7 @@ pub enum RhsClause {
 ///                            PROGRAM
 ///////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Datalog {
     pub imports: Vec<(Vec<Attribute>, Import)>,
     pub typedefs: Vec<(Vec<Attribute>, Typedef)>,
@@ -404,13 +444,13 @@ pub struct Datalog {
     pub rules: Vec<(Vec<Attribute>, RuleDecl)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnnotatedDecl {
     pub attrs: Vec<Attribute>,
     pub decl: Decl,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Decl {
     Import(Import),
     Typedef(Typedef),
