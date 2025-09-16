@@ -65,3 +65,17 @@ flowchart TD
 1. Convert `syntax tree` to `IR`.
 2. `IR` to `executable`.
 
+
+## Week 2 (16-09-2025)
+1. Worked toward `syntax tree` to `IR` translation.
+
+  1. Wrote the type inference engine
+  2. Built Expr Syntactic Context. Expression's syntactic context determines the
+kinds of expressions that can appear at this location in the program, expected
+type of the expression, and variables visible within the given scope.
+
+
+
+#### TBD for next week:-
+1. Complete `syntax tree` to `IR` translation
+2. `IR` to `executable`.
