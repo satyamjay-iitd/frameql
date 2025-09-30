@@ -77,3 +77,74 @@ flowchart TD
 #### TBD for next week:-
 1. Complete `syntax tree` to `IR` translation
 2. `IR` to `executable`.
+
+
+
+## Week 3 (24-09-2025)
+No work done. Busy with other paper submission.
+
+
+## Week 4 (30-09-2025)
+
+### Paper Reviews
+### Paper-I [SketchQL](https://dl.acm.org/doi/abs/10.1145/3677140) (SIGMOD 2024)
+
+
+#### Key Idea(s)
+1. Express trajectory based queries (Temporal Query) as sketch. The user can "sketch" the trajectory of the object it wants to find and submit that sketch to the system. The user doesn't have to be an expert in a query language or need to know geometry to specify complex trajectories.
+2. The System will match -- the user given trajectory with the trajectories of all the objects in the video using a ML model. The matched trajectories will be the output of the query.
+This ML model takes care of the noise in the sketch and the data.
+
+#### Questions
+1. Can the query contain multiple objects and their interaction? **Yes**
+2. When searching for the output trajectory in the video, you should not search in the entire video but search in a window. what is the size of the window? **User provides the window size**
+3. How to train the similarity model?
+
+    1.  Goal of the model:- Learn **Observer agnostic trajectory representation**. Because the sketch is not guaranteed to match orientation/scale of the actual object and it is a rough estimation of actual trajectory. So the input of the model is `Sequence of bounding boxes` that represents the trajectory and output is an `(observer agnostic) embedding of the trajectory`.
+    2.  Training data:- Synthetically generate data by first running a 3D simulation in which bouding boxes(3D) are moving in a plane.
+   Then observe the same trajectory of bounding boxes from different camera angles by which you get multiple trajectory that are same in the 3D space but are different in the 2D space. The model is trained to minimize the difference between a pair of embeddings of the 2D trajectory obtained from a common 3D trajectory.
+
+#### My Criticism(s)
+1. The algorithm might be too slow when the number of objects in the query increases, because to match a sketch that involves multiple objects (say 2) you have to consider all combination of pair of objects (NC2) in the window (Line 6 in the Algorithm 1).
+2. The algorithm considers multiple windows with same starting point when searching for matching trajectory (Line 4-5 in the Algorithm). For example, lets say you are searching for objects that -- "Moved Forward then Turned Left" (Obviously expressed as a sketch). While searching you might search the following two windows.
+
+<img width="880" height="200" alt="image" src="https://github.com/user-attachments/assets/7ef64306-23da-48cf-a37c-41becba19cd1" />
+
+The first window obviously doesn't match the query so it gets discarded, but the larger window does satisfy the query and it get added to the result. Now the issue that I have is that we wasted the computation of the smaller window; we did not leverage the fact that the in the first window object travelled in the straight direction which partially matches the query.
+
+
+
+### Paper-II [BobSled](https://dl.acm.org/doi/10.1145/3725419) (SIGMOD 2025)
+#### Key Idea(s)
+1. Leverage Large Vision Models that can take input `a sequence of` frames and output `events that are happening in the frames`.
+2. i) Express the query as an NFA. ii) Split the video in batch of 16 frames. iii) Feed the sequence of frames to the model to recognize what action that is happening in the sequence of frame. iv) Transition state in the NFA if the recognised action matches the action in the NFA. v) If we reach the final state of NFA then the sequence of sequnce of Frame satisfies the query.
+3. Use a proxy model to avoid inference on the heavier oracle model.
+
+#### Questions
+
+#### My Criticism(s)
+1. Large Vision Models cannot be deployed on edge and are very compute heavy in general.
+
+
+
+
+### Work on the Compiler
+Now able to compile to the IR. For example:-
+```
+// Input relations
+input relation Links(src: string, dst: string, link_status: bool)
+
+// Output relations
+output relation ConnectedNodes(src: string, dst: string)
+
+/*
+ * Rules to calculate `ConnectedNodes` relation
+ */
+ConnectedNodes(src, dst) :- Links(src, dst, true).
+ConnectedNodes(src, dst) :- ConnectedNodes(src, intermediate_node), Links(intermediate_node, dst, true), (src != dst).****
+```
+Compiles to the following [graph](https://dreampuf.github.io/GraphvizOnline/?engine=dot#digraph%20%7B%0A%20%20%20%200%20%5B%20label%20%3D%20%22Rel(%5C%22Links%5C%22)%22%20%5D%0A%20%20%20%201%20%5B%20label%20%3D%20%22Rel(%5C%22ConnectedNodes%5C%22)%22%20%5D%0A%20%20%20%200%20-%3E%201%20%5B%20%5D%0A%20%20%20%201%20-%3E%201%20%5B%20%5D%0A%20%20%20%200%20-%3E%201%20%5B%20%5D%0A%7D)
+
+### TDB
+1. Generate executable
+2. Plan:- Emit [datafusion](github.com/apache/datafusion) code. Datafusion is Calcite rewritten in Rust (by same people).
