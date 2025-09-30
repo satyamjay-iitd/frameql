@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use frameql_ast::{Identifier, Import, TypeVarName};
+use frameql_ast::{BinaryOp, Identifier, Import, TypeVarName, UnaryOp};
 
 use crate::{
     Statics,
-    expr::{BOp, ECtx, Expr, ExprVisitor, UOp, expr_collect_ctx, expr_fold, expr_fold_ctx},
+    expr::{ECtx, Expr, ExprVisitor, expr_collect_ctx, expr_fold, expr_fold_ctx},
     func::{FnDef, Function},
-    relation::{Relation, rel_expr_map},
+    relation::{Relation, RelationWithTDef, rel_expr_map},
     rule::{Rule, RuleRHS, rule_expr_map},
     r#type::{Constructor, Field, Type, TypeDef, struct_fields},
     var::{Var, arg2v},
@@ -18,7 +18,7 @@ pub struct FrameQLProgram {
     pub typedefs: HashMap<String, TypeDef>,
     // There can be multiple functions with the same name.
     // The key in the map is the function name; value is a Vec of functions
-    pub functions: HashMap<String, Vec<Function>>,
+    pub functions: HashMap<String, Function>,
     pub relations: HashMap<String, Relation>,
     pub rules: Vec<Rule>,
     // maps module to source code
@@ -38,7 +38,7 @@ impl FrameQLProgram {
 
     /// Variables visible *after* the `i`-th conjunct.
     pub fn rule_rhs_vars_after(&self, rl: &Rule, i: usize) -> Vec<Var> {
-        if i < 0 {
+        if i == 0 {
             return Vec::new();
         }
 
@@ -233,10 +233,6 @@ impl FrameQLProgram {
                 Type::TTuple(types)
             }
 
-            ESlice { .. } => {
-                todo!()
-            }
-
             EMatch { clause: _, body } => {
                 // Haskell: snd $ head cs
                 // cases: Vec<(Expr, Type)> in Haskell; in Rust assume Vec<(Expr, Type)>
@@ -265,35 +261,37 @@ impl FrameQLProgram {
             EReturn(..) => ctx.expect_type(),
 
             EBinOp { op, left, .. } => match op {
-                BOp::Eq
-                | BOp::Neq
-                | BOp::Lt
-                | BOp::Gt
-                | BOp::Lte
-                | BOp::Gte
-                | BOp::And
-                | BOp::Or
-                | BOp::Impl
-                | BOp::Plus
-                | BOp::Minus
-                | BOp::Mod
-                | BOp::Times
-                | BOp::Div
-                | BOp::ShiftR
-                | BOp::ShiftL
-                | BOp::BAnd
-                | BOp::BOr
-                | BOp::BXor => self.typ_prime(ctx, left),
-                BOp::Concat => Type::TString,
+                BinaryOp::Eq
+                | BinaryOp::Ne
+                | BinaryOp::Le
+                | BinaryOp::Ge
+                | BinaryOp::Lt
+                | BinaryOp::Gt
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::Impl
+                | BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mod
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Shr
+                | BinaryOp::Shl
+                | BinaryOp::BitAnd
+                | BinaryOp::Assign
+                | BinaryOp::BitOr => self.typ_prime(ctx, left),
+                BinaryOp::Concat => Type::TString,
             },
 
-            EUnOp { op: UOp::Not, .. } => Type::TBool,
             EUnOp {
-                op: UOp::BNeg,
+                op: UnaryOp::Not, ..
+            } => Type::TBool,
+            EUnOp {
+                op: UnaryOp::BitNot,
                 expr,
             } => self.typ_prime(ctx, expr),
             EUnOp {
-                op: UOp::UMinus,
+                op: UnaryOp::Neg,
                 expr,
             } => self.typ_prime(ctx, expr),
 
@@ -347,7 +345,7 @@ impl FrameQLProgram {
         false
     }
 
-    pub(crate) fn expr_is_pure(&self, ctx: &ECtx, expr: &Expr) -> bool {
+    pub(crate) fn expr_is_pure(&self, _ctx: &ECtx, _expr: &Expr) -> bool {
         true
     }
 
@@ -680,7 +678,10 @@ impl FrameQLProgram {
                         let new_t = type_subst_type_args(&subst, &ty.into());
                         self._typ_deref_prime(new_t)
                     }
-                    None => todo!(),
+                    None => Type::TOpaque {
+                        name: n.clone(),
+                        args: as_.clone(),
+                    },
                 }
             }
 
@@ -699,14 +700,13 @@ impl FrameQLProgram {
         self.typedefs.get(name).cloned()
     }
 
-    fn func_is_polymorphic(&self, f: &Identifier) -> bool {
-        todo!()
+    fn func_is_polymorphic(&self, _f: &Identifier) -> bool {
+        false
     }
 
     fn lookup_fn(&self, name: &Identifier) -> Option<Function> {
         let fns = self.functions.get(name.as_str())?;
-        assert_eq!(fns.len(), 1);
-        Some(fns[0].clone())
+        Some(fns.clone())
     }
 
     fn rule_group_by_key_type(&self, rule: &Rule, idx: usize) -> Type {
@@ -742,24 +742,17 @@ impl FrameQLProgram {
             .map(|r| (r.0.clone(), rel_expr_map(r.1.clone(), f.clone())))
             .collect();
 
-        let mut new_funcs: HashMap<String, Vec<Function>> = HashMap::new();
+        let mut new_funcs: HashMap<String, Function> = HashMap::new();
 
-        for (name, funcs) in self.functions.iter() {
-            let updated_funcs: Vec<Function> = funcs
-                .into_iter()
-                .map(|func| match func {
-                    Function::FnDef(fn_def) => Function::FnDef(FnDef {
-                        body: expr_fold_ctx(
-                            &mut f.clone(),
-                            &ECtx::Func(func.clone()),
-                            &fn_def.body,
-                        ),
-                        ..fn_def.clone()
-                    }),
-                    x @ Function::ExternFn(_) => x.clone(),
-                })
-                .collect();
-            new_funcs.insert(name.clone(), updated_funcs);
+        for (name, func) in self.functions.iter() {
+            let updated_func: Function = match func {
+                Function::FnDef(fn_def) => Function::FnDef(FnDef {
+                    body: expr_fold_ctx(&mut f.clone(), &ECtx::Func(func.clone()), &fn_def.body),
+                    ..fn_def.clone()
+                }),
+                x @ Function::ExternFn(_) => x.clone(),
+            };
+            new_funcs.insert(name.clone(), updated_func);
         }
 
         let rules = self
@@ -776,8 +769,12 @@ impl FrameQLProgram {
         }
     }
 
-    pub(crate) fn get_rules(&self, rel: &Relation) -> Vec<Rule> {
-        todo!()
+    pub(crate) fn get_rules(&self, rel: &Identifier) -> Vec<Rule> {
+        self.rules
+            .iter()
+            .filter(|rule| rule.head.iter().any(|lhs| lhs.0.relation == *rel))
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn get_relation(&self, relation: &Identifier) -> Relation {
@@ -928,7 +925,7 @@ impl FrameQLProgram {
             .map(|i| format!("_{}", i))
             .collect();
 
-        Some(normalize(vars, acc))
+        Some(self.normalize(vars, acc))
     }
 
     fn subst(&self, acc: &Expr, arrange_by: &(Expr, ECtx), i: usize) -> Option<Expr> {
@@ -1095,49 +1092,97 @@ impl FrameQLProgram {
         //     ),
         // }
     }
+
+    fn normalize(&self, vars: Vec<String>, acc: Expr) -> Expr {
+        struct Visitor<'a> {
+            vars: &'a Vec<String>,
+            prog: &'a FrameQLProgram,
+        }
+        impl<'a> ExprVisitor<Expr> for Visitor<'a> {
+            fn visit_expr(&mut self, e: &Expr) -> Expr {
+                match e {
+                    Expr::EVar(ident) => self.visit_var(ident),
+                    Expr::EStruct { name, fields } => self.visit_struc(name, fields),
+                    Expr::ETuple(tuple) => self.visit_tuple(tuple),
+                    Expr::EBinding { var, pattern } => self.visit_binding(var, pattern),
+                    Expr::ERef(var) => self.visit_ref(var),
+                    _ => e.clone(),
+                }
+            }
+            fn visit_var(&mut self, ident: &Identifier) -> Expr {
+                if self.vars.contains(&ident.0) {
+                    Expr::EVar(ident.clone())
+                } else {
+                    Expr::EPHolder // equivalent of `ePHolder`
+                }
+            }
+            fn visit_struc(&mut self, name: &Identifier, fields: &Vec<(Identifier, Expr)>) -> Expr {
+                if self.prog.cons_is_unique(name.as_str())
+                    && fields.iter().all(|(_, e)| *e == Expr::EPHolder)
+                {
+                    Expr::EPHolder
+                } else {
+                    Expr::EStruct {
+                        name: name.clone(),
+                        fields: fields.clone(),
+                    }
+                }
+            }
+            fn visit_tuple(&mut self, tuple: &Vec<Expr>) -> Expr {
+                if tuple.iter().all(|e| *e == Expr::EPHolder) {
+                    Expr::EPHolder
+                } else {
+                    Expr::ETuple(tuple.clone())
+                }
+            }
+            fn visit_binding(&mut self, _var: &Identifier, pattern: &Expr) -> Expr {
+                pattern.clone()
+            }
+            fn visit_ref(&mut self, expr: &Expr) -> Expr {
+                if *expr == Expr::EPHolder {
+                    Expr::EPHolder
+                } else {
+                    Expr::ERef(Box::new(expr.clone()))
+                }
+            }
+        }
+
+        let mut visit = Visitor {
+            vars: &vars,
+            prog: &self,
+        };
+        visit.visit_expr(&acc)
+    }
 }
 
 fn expr_is_var_or_field(expr: &Expr) -> bool {
-    struct Visitor<'a> {
-        prog: &'a FrameQLProgram,
-        ctx: &'a ECtx,
-    }
-    impl<'a> ExprVisitor<bool> for Visitor<'a> {
+    struct Visitor {}
+    impl<'a> ExprVisitor<bool> for Visitor {
         fn visit_expr(&mut self, e: &Expr) -> bool {
             match e {
                 Expr::EVar(ident) => self.visit_var(ident),
                 Expr::EField { struct_, field } => self.visit_field(struct_, field),
                 Expr::ETupField { tuple, field } => self.visit_tup_field(tuple, *field),
-                Expr::EStruct { name, fields } => self.visit_struc(name, fields),
-                Expr::ETuple(tuple) => self.visit_tuple(tuple),
-                Expr::EVarDecl(ident) => self.visit_var_decl(ident),
-                Expr::ESet { lval, rval } => self.visit_set(lval, rval),
-                Expr::EBinding { var, pattern } => self.visit_binding(var, pattern),
                 Expr::ETyped { expr, spec } => self.visit_typed(expr, spec),
-                Expr::ERef(expr) => self.visit_ref(expr),
                 _ => false,
             }
         }
-        fn visit_struc(&mut self, _name: &Identifier, fields: &Vec<(Identifier, Expr)>) -> bool {}
-
-        fn visit_tuple(&mut self, tuple: &Vec<Expr>) -> bool {}
-
-        fn visit_set(&mut self, lval: &Expr, _rval: &Expr) -> bool {}
-
-        fn visit_binding(&mut self, var: &Identifier, pattern: &Expr) -> bool {}
-
-        fn visit_typed(&mut self, expr: &Expr, _spec: &Type) -> bool {}
-
-        fn visit_ref(&mut self, expr: &Expr) -> bool {}
-
-        fn visit_var_decl(&mut self, ident: &Identifier) -> bool {}
-
-        fn visit_var(&mut self, ident: &Identifier) -> bool {}
+        fn visit_var(&mut self, _ident: &Identifier) -> bool {
+            true
+        }
+        fn visit_field(&mut self, struct_: &Expr, _field: &Identifier) -> bool {
+            self.visit_expr(struct_)
+        }
+        fn visit_tup_field(&mut self, tuple: &Expr, _field: usize) -> bool {
+            self.visit_expr(tuple)
+        }
+        fn visit_typed(&mut self, expr: &Expr, _spec: &Type) -> bool {
+            self.visit_expr(expr)
+        }
     }
-}
 
-fn normalize(vars: Vec<String>, acc: Expr) -> Expr {
-    todo!()
+    let mut visit = Visitor {};
+    visit.visit_expr(expr)
 }
 
 pub fn type_subst_type_args(
@@ -1197,5 +1242,54 @@ pub fn cons_subst_type_args(subst: &HashMap<TypeVarName, Type>, cons: &Construct
     Constructor {
         fields: new_args,
         ..cons.clone()
+    }
+}
+
+impl From<frameql_ast::Datalog> for FrameQLProgram {
+    fn from(value: frameql_ast::Datalog) -> Self {
+        let relation_with_tdefs: Vec<RelationWithTDef> = value
+            .relations
+            .iter()
+            .map(|(_, rel)| rel.clone().into())
+            .collect();
+        let relations = relation_with_tdefs
+            .iter()
+            .map(|r| (r.1.name.as_str().to_string(), r.1.clone()))
+            .collect();
+        let mut r_tdefs: Vec<_> = relation_with_tdefs
+            .iter()
+            .filter_map(|r| r.0.clone().map(|x| x))
+            .collect();
+        r_tdefs.extend(
+            value
+                .typedefs
+                .iter()
+                .map(|(_, t)| t.clone().into())
+                .collect::<Vec<_>>(),
+        );
+
+        FrameQLProgram {
+            imports: value.imports.iter().map(|(_, i)| i.clone()).collect(),
+            typedefs: r_tdefs
+                .iter()
+                .map(|t| (t.name.as_str().to_string(), t.clone()))
+                .collect(),
+            functions: value
+                .functions
+                .iter()
+                .map(|(_, fn_)| {
+                    (
+                        match &fn_ {
+                            frameql_ast::Function::FnDef(fn_def) => fn_def.name.clone(),
+                            frameql_ast::Function::ExternFn(extern_fn) => extern_fn.name.clone(),
+                        },
+                        fn_.clone().into(),
+                    )
+                })
+                .collect(),
+            relations: relations,
+            rules: value.rules.iter().map(|(_, r)| r.clone().into()).collect(),
+            sources: HashMap::new(),
+        }
     }
 }

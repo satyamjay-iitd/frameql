@@ -1,8 +1,9 @@
 use frameql_ast::{
     AnnotatedDecl, Atom, AtomPositional, Attribute, BinaryOp, Constructor, Datalog, Decl, Expr,
     ExternFn, Field, FnArg, FnDef, ForPattern, FuncParam, Function, FunctionType, Identifier,
-    Import, IndexedAtom, IoQualifier, NamedAtom, Pattern, PrimaryKey, Relation, RelationKind,
-    RhsClause, RuleDecl, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName, Typedef, UnaryOp,
+    Import, IndexedAtom, IoQualifier, NamedAtom, Pattern, PrimaryKey, RelSemantics, Relation,
+    RelationKind, RhsClause, RuleDecl, SimpleTypeSpec, Term, TypeAlias, TypeSpec, TypeVarName,
+    Typedef, UnaryOp,
 };
 use pest::iterators::Pair;
 
@@ -15,9 +16,12 @@ fn parse_identifier(pair: Pair<Rule>) -> Identifier {
         Rule::uc_identifier => Identifier(pair.as_str().to_string()),
         Rule::lc_identifier => Identifier(pair.as_str().to_string()),
         Rule::uc_scoped_identifier => Identifier(pair.as_str().to_string()),
+        Rule::lc_scoped_identifier => Identifier(pair.as_str().to_string()),
         Rule::identifier => parse_identifier(pair.into_inner().next().unwrap()),
         Rule::rel_name => parse_identifier(pair.into_inner().next().unwrap()),
         Rule::var_name => parse_identifier(pair.into_inner().next().unwrap()),
+        Rule::scoped_identifier => parse_identifier(pair.into_inner().next().unwrap()),
+        Rule::type_name => parse_identifier(pair.into_inner().next().unwrap()),
         _ => unreachable!("unexpected rule: {:?}", pair.as_rule()),
     }
 }
@@ -61,11 +65,25 @@ fn parse_typedef(pair: Pair<Rule>) -> Typedef {
 
     match first.as_rule() {
         Rule::typedef_definition => {
-            // typedef
-            let name = parse_identifier(first.into_inner().next().unwrap());
+            // let name = parse_identifier(first.into_inner().next().unwrap());
+            let mut name = None;
             let mut type_params = Vec::new();
             let mut def = None;
 
+            for p in first.into_inner() {
+                match p.as_rule() {
+                    Rule::type_name => {
+                        name = Some(parse_identifier(p.into_inner().next().unwrap()));
+                    }
+                    Rule::type_params => {
+                        type_params = parse_typevar_names(p);
+                    }
+                    Rule::type_spec => {
+                        def = Some(parse_typespec(p));
+                    }
+                    _ => {}
+                }
+            }
             for p in inner {
                 match p.as_rule() {
                     Rule::type_params => {
@@ -79,7 +97,7 @@ fn parse_typedef(pair: Pair<Rule>) -> Typedef {
             }
 
             Typedef::Regular {
-                name,
+                name: name.expect("typedef must have a name"),
                 type_params,
                 def: def.expect("typedef must have a definition"),
             }
@@ -125,7 +143,6 @@ fn parse_typespec(pair: Pair<Rule>) -> TypeSpec {
 
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::bigint_type => TypeSpec::BigInt,
         Rule::bool_type => TypeSpec::Bool,
         Rule::string_type => TypeSpec::String,
         Rule::bitvector_type => {
@@ -133,8 +150,8 @@ fn parse_typespec(pair: Pair<Rule>) -> TypeSpec {
             TypeSpec::BitVector(width)
         }
         Rule::integer_type => {
-            let width = parse_decimal(inner.into_inner().next().unwrap());
-            TypeSpec::Integer(width)
+            // let width = parse_decimal(inner.into_inner().next().unwrap());
+            TypeSpec::Integer
         }
         Rule::double_type => TypeSpec::Double,
         Rule::float_type => TypeSpec::Float,
@@ -160,7 +177,7 @@ fn parse_simple_typespec(pair: Pair<Rule>) -> SimpleTypeSpec {
 
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::bigint_type => SimpleTypeSpec::BigInt,
+        Rule::integer_type => SimpleTypeSpec::Integer,
         Rule::bool_type => SimpleTypeSpec::Bool,
         Rule::string_type => SimpleTypeSpec::String,
         Rule::bitvector_type => {
@@ -215,21 +232,23 @@ fn parse_typealias(pair: Pair<Rule>) -> TypeAlias {
 ///////////////////////////////////////////////////////////////////////
 fn parse_functype(pair: Pair<Rule>) -> FunctionType {
     assert_eq!(pair.as_rule(), Rule::function_type);
-
     let mut params = Vec::new();
-    let mut ret = None;
+    let mut ret: Option<Box<TypeSpec>> = None;
 
-    for p in pair.into_inner() {
-        match p.as_rule() {
+    // iterate children exactly once and pick out the pieces we care about
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
             Rule::func_params => {
-                params = p.into_inner().map(parse_fnparam).collect();
+                params = inner.into_inner().map(parse_fnparam).collect();
             }
             Rule::type_spec => {
-                ret = Some(Box::new(parse_typespec(p)));
+                ret = Some(Box::new(parse_typespec(inner)));
             }
             _ => {}
         }
     }
+
+    let ret = ret.expect("parse_functype: missing return type");
 
     FunctionType { params, ret }
 }
@@ -427,13 +446,17 @@ pub fn parse_relation(pair: Pair<Rule>) -> Relation {
     assert_eq!(pair.as_rule(), Rule::relation);
     let mut inner = pair.into_inner();
 
-    // io_qualifier?
     let mut qualifier = None;
     if let Some(peek) = inner.peek() {
         if peek.as_rule() == Rule::io_qualifier {
             qualifier = Some(parse_ioqualifier(inner.next().unwrap()));
         }
     }
+    let next = inner.next().unwrap();
+    let semantics = match next.as_rule() {
+        Rule::rel_sem => parse_rel_sem(next),
+        _ => panic!("Unexpected rule in relation"),
+    };
 
     // rel_name
     let name = inner.next().unwrap().as_str().to_string();
@@ -461,6 +484,7 @@ pub fn parse_relation(pair: Pair<Rule>) -> Relation {
         name,
         kind,
         primary_key,
+        semantics,
     }
 }
 
@@ -468,6 +492,15 @@ pub fn parse_ioqualifier(pair: Pair<Rule>) -> IoQualifier {
     match pair.as_str() {
         "input" => IoQualifier::Input,
         "output" => IoQualifier::Output,
+        other => panic!("Invalid io_qualifier: {}", other),
+    }
+}
+
+pub fn parse_rel_sem(pair: Pair<Rule>) -> RelSemantics {
+    match pair.as_str() {
+        "stream" => RelSemantics::Stream,
+        "multiset" => RelSemantics::Multiset,
+        "relation" => RelSemantics::Set,
         other => panic!("Invalid io_qualifier: {}", other),
     }
 }
@@ -908,17 +941,26 @@ pub fn parse_rule(pair: Pair<Rule>) -> RuleDecl {
     assert_eq!(pair.as_rule(), Rule::rule_decl);
     let mut inner = pair.into_inner();
 
-    // head atoms (before ":-")
     let mut head_atoms = Vec::new();
-    while let Some(p) = inner.peek() {
-        if p.as_rule() == Rule::rhs_clause {
-            break;
+    if let Some(lhs_pair) = inner.next() {
+        assert_eq!(lhs_pair.as_rule(), Rule::rule_lhs);
+        for atom_pair in lhs_pair.into_inner() {
+            if atom_pair.as_rule() == Rule::atom {
+                head_atoms.push(parse_atom(atom_pair));
+            }
         }
-        head_atoms.push(parse_atom(inner.next().unwrap()));
     }
 
-    // body clauses
-    let body = inner.map(parse_rhs).collect();
+    // Parse optional body (rule_rhs)
+    let mut body = Vec::new();
+    if let Some(rhs_pair) = inner.next() {
+        assert_eq!(rhs_pair.as_rule(), Rule::rule_rhs);
+        for clause_pair in rhs_pair.into_inner() {
+            if clause_pair.as_rule() == Rule::rhs_clause {
+                body.push(parse_rhs(clause_pair));
+            }
+        }
+    }
 
     RuleDecl {
         head: head_atoms,

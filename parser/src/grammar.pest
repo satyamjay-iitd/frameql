@@ -72,8 +72,7 @@ type_params = { "<" ~ typevar_name ~ ("," ~ typevar_name)* ~ ">" }
 
 // ---------- Type Specs ----------
 type_spec = {
-    bigint_type
-  | bool_type
+  bool_type
   | string_type
   | bitvector_type
   | integer_type
@@ -87,9 +86,9 @@ type_spec = {
 }
 
 simple_type_spec = {
-    bigint_type
-  | bool_type
+  bool_type
   | string_type
+  | integer_type
   | bitvector_type
   | double_type
   | float_type
@@ -104,7 +103,7 @@ bigint_type    = { "bigint" }
 bool_type      = { "bool" }
 string_type    = { "string" }
 bitvector_type = { "bit" ~ "<" ~ decimal ~ ">" }
-integer_type   = { "signed" ~ "<" ~ decimal ~ ">" }
+integer_type   = { "i32" }
 double_type    = { "double" }
 float_type     = { "float" }
 
@@ -114,8 +113,8 @@ tuple_type = { "(" ~ simple_type_spec* ~ ")" }
 union_type = { (constructor ~ "|")* ~ constructor }
 
 function_type = {
-    "function" ~ "(" ~ func_params? ~ ")" ~ (":" ~ type_spec)?
-  | "|" ~ func_params? ~ "|" ~ (":" ~ type_spec)?
+    "function" ~ "(" ~ func_params? ~ ")" ~ (":" ~ type_spec)
+  | "|" ~ func_params? ~ "|" ~ (":" ~ type_spec)
 }
 
 func_params = { func_param ~ ("," ~ func_param)* }
@@ -149,11 +148,12 @@ arg      = { "mut"? ~ arg_name ~ ":" ~ simple_type_spec }
 ///                            RELATION
 ///////////////////////////////////////////////////////////////////////
 relation = {
-    io_qualifier? ~ "relation" ~ rel_name ~ "(" ~ arg_list ~ ")" ~ primary_key?
-  | io_qualifier? ~ "relation" ~ rel_name ~ "[" ~ simple_type_spec ~ "]" ~ primary_key?
+    io_qualifier? ~ rel_sem ~ rel_name ~ "(" ~ arg_list ~ ")" ~ primary_key?
+  | io_qualifier? ~ rel_sem ~ rel_name ~ "[" ~ simple_type_spec ~ "]" ~ primary_key?
 }
 
 io_qualifier = { "input" | "output" }
+rel_sem = { "stream" | "multiset" | "relation" }
 
 primary_key = { "primary" ~ "key" ~ "(" ~ var_name ~ ")" ~ expr }
 
@@ -311,8 +311,8 @@ match_clause = { pattern ~ "->" ~ expr }
 
 // ---------- Lambda Term ----------
 lambda_term = {
-    "function" ~ "(" ~ expr_list? ~ ")" ~ (":" ~ simple_type_spec)? ~ expr
-  | "|" ~ expr_list? ~ "|" ~ (":" ~ simple_type_spec)? ~ expr
+    "function" ~ "(" ~ expr_list? ~ ")" ~ (":" ~ simple_type_spec) ~ expr
+  | "|" ~ expr_list? ~ "|" ~ (":" ~ simple_type_spec) ~ expr
 }
 
 // ---------- Pattern ----------
@@ -349,8 +349,11 @@ for_pattern = {
 ///                            RULE
 ///////////////////////////////////////////////////////////////////////
 rule_decl = {
-    atom ~ ("," ~ atom)* ~ ":-" ~ rhs_clause ~ ("," ~ rhs_clause)* ~ "."
+    rule_lhs ~ rule_rhs? ~ "."
 }
+rule_lhs = { atom ~ ("," ~ atom)* }
+rule_rhs = { ":-" ~ rhs_clause ~ ("," ~ rhs_clause)* }
+
 
 // ---------- Atom ----------
 atom = {

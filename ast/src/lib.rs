@@ -46,16 +46,36 @@ pub enum Typedef {
     },
 }
 
+impl Typedef {
+    pub fn name(&self) -> &Identifier {
+        match self {
+            Typedef::Regular { name, .. } => name,
+            Typedef::Extern { name, .. } => name,
+        }
+    }
+    pub fn type_(&self) -> Option<&TypeSpec> {
+        match self {
+            Typedef::Regular { def, .. } => Some(def),
+            Typedef::Extern { .. } => None,
+        }
+    }
+    pub fn type_params(&self) -> &Vec<TypeVarName> {
+        match self {
+            Typedef::Regular { type_params, .. } => type_params,
+            Typedef::Extern { type_params, .. } => type_params,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarName(pub Identifier);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TypeSpec {
-    BigInt,
     Bool,
     String,
     BitVector(u64), // decimal width
-    Integer(u64),   // signed<width>
+    Integer,
     Double,
     Float,
     Tuple(Vec<SimpleTypeSpec>),
@@ -67,9 +87,9 @@ pub enum TypeSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SimpleTypeSpec {
-    BigInt,
     Bool,
     String,
+    Integer,
     BitVector(u64),
     Double,
     Float,
@@ -82,7 +102,7 @@ pub enum SimpleTypeSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionType {
     pub params: Vec<FuncParam>,
-    pub ret: Option<Box<TypeSpec>>,
+    pub ret: Box<TypeSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -189,8 +209,16 @@ pub enum IoQualifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum RelSemantics {
+    Set,
+    Stream,
+    Multiset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Relation {
     pub qualifier: Option<IoQualifier>,
+    pub semantics: RelSemantics,
     pub name: String,
     pub kind: RelationKind,
     pub primary_key: Option<PrimaryKey>,
@@ -315,7 +343,9 @@ pub enum Pattern {
 impl Pattern {
     pub fn to_expr(&self) -> Expr {
         match self {
-            Pattern::Tuple(_) => todo!(),
+            Pattern::Tuple(patterns) => {
+                Expr::Term(Term::Tuple(patterns.iter().map(|p| p.to_expr()).collect()))
+            }
             Pattern::Cons {
                 name,
                 args,
@@ -328,12 +358,12 @@ impl Pattern {
                     .map(|(name, val)| (name.clone(), val.to_expr()))
                     .collect(),
             }),
-            Pattern::VarDecl(_) => todo!(),
-            Pattern::Var(_) => todo!(),
-            Pattern::Bool(_) => todo!(),
-            Pattern::String(_) => todo!(),
-            Pattern::Int(_) => todo!(),
-            Pattern::Wildcard => todo!(),
+            Pattern::VarDecl(ident) => Expr::Term(Term::VarDecl(ident.clone())),
+            Pattern::Var(ident) => Expr::Term(Term::Var(ident.clone())),
+            Pattern::Bool(val) => Expr::Term(Term::Bool(*val)),
+            Pattern::String(val) => Expr::Term(Term::String(val.clone())),
+            Pattern::Int(val) => Expr::Term(Term::Int(*val)),
+            Pattern::Wildcard => Expr::Term(Term::Wildcard),
         }
     }
 }
@@ -351,14 +381,14 @@ pub enum ForPattern {
     Wildcard,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum UnaryOp {
     Neg,
     Not,
     BitNot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BinaryOp {
     Impl,
     Assign,

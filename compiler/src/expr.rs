@@ -1,41 +1,33 @@
-use frameql_ast::{FnArg, Identifier};
+use frameql_ast::{BinaryOp, Expr as ASTExpr, FnArg, Identifier, Term as ASTTerm, UnaryOp};
 use ordered_float::OrderedFloat;
 
 use crate::{
-    Statics, func::Function, prog::FrameQLProgram, relation::Relation, rule::Rule, r#type::Type,
-    var::Var,
+    func::Function, prog::FrameQLProgram, relation::Relation, rule::Rule, r#type::Type, var::Var,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum BOp {
-    Eq,
-    Neq,
-    Lt,
-    Gt,
-    Lte,
-    Gte,
-    And,
-    Or,
-    Impl,
-    Plus,
-    Minus,
-    Mod,
-    Times,
-    Div,
-    ShiftR,
-    ShiftL,
-    BAnd,
-    BOr,
-    BXor,
-    Concat,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum UOp {
-    Not,
-    BNeg,
-    UMinus,
-}
+// #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+// pub enum BOp {
+//     Eq,
+//     Neq,
+//     Lt,
+//     Gt,
+//     Lte,
+//     Gte,
+//     And,
+//     Or,
+//     Impl,
+//     Plus,
+//     Minus,
+//     Mod,
+//     Times,
+//     Div,
+//     ShiftR,
+//     ShiftL,
+//     BAnd,
+//     BOr,
+//     BXor,
+//     Concat,
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Expr {
@@ -61,11 +53,11 @@ pub enum Expr {
         fields: Vec<(Identifier, Expr)>,
     },
     ETuple(Vec<Expr>),
-    ESlice {
-        array: Box<Expr>,
-        high: u64,
-        low: u64,
-    },
+    // ESlice {
+    //     array: Box<Expr>,
+    //     high: u64,
+    //     low: u64,
+    // },
     EMatch {
         clause: Box<Expr>,
         body: Vec<(Expr, Expr)>,
@@ -93,12 +85,12 @@ pub enum Expr {
     EContinue,
     EReturn(Box<Expr>),
     EBinOp {
-        op: BOp,
+        op: BinaryOp,
         left: Box<Expr>,
         right: Box<Expr>,
     },
     EUnOp {
-        op: UOp,
+        op: UnaryOp,
         expr: Box<Expr>,
     },
     EBinding {
@@ -165,7 +157,8 @@ impl Expr {
     }
 
     pub(crate) fn is_const(&self) -> bool {
-        self.vars(None, None).is_empty()
+        false
+        // self.vars(None, None).is_empty()
     }
 
     pub fn field_expr_var(&self) -> Option<&Identifier> {
@@ -265,11 +258,11 @@ pub trait ExprVisitor<T> {
         unimplemented!();
     }
     #[allow(unused)]
-    fn visit_bin_op(&mut self, op: BOp, left: &Expr, right: &Expr) -> T {
+    fn visit_bin_op(&mut self, op: BinaryOp, left: &Expr, right: &Expr) -> T {
         unimplemented!();
     }
     #[allow(unused)]
-    fn visit_un_op(&mut self, op: UOp, expr: &Expr) -> T {
+    fn visit_un_op(&mut self, op: UnaryOp, expr: &Expr) -> T {
         unimplemented!();
     }
     #[allow(unused)]
@@ -406,10 +399,10 @@ pub enum ECtx {
     },
 
     /// Bit slice: `CtxTupFied[h:l]`
-    Slice {
-        par_expr: Expr,
-        par: Box<ECtx>,
-    },
+    // Slice {
+    //     par_expr: Expr,
+    //     par: Box<ECtx>,
+    // },
 
     /// Argument of a match expression: `match (X) {...}`
     MatchExpr {
@@ -566,6 +559,8 @@ impl ECtx {
             | ECtx::RuleRProject { .. }
             | ECtx::RuleRGroupBy { .. }
             | ECtx::Key { .. }
+            | ECtx::Top
+            | ECtx::Undefined
             | ECtx::Func(_) => ECtx::Top,
             ECtx::ApplyArg { par, .. }
             | ECtx::ApplyFunc { par, .. }
@@ -573,7 +568,7 @@ impl ECtx {
             | ECtx::TupField { par, .. }
             | ECtx::Struct { par, .. }
             | ECtx::Tuple { par, .. }
-            | ECtx::Slice { par, .. }
+            // | ECtx::Slice { par, .. }
             | ECtx::MatchExpr { par, .. }
             | ECtx::MatchPat { par, .. }
             | ECtx::MatchVal { par, .. }
@@ -597,8 +592,6 @@ impl ECtx {
             | ECtx::Ref { par, .. }
             | ECtx::Try { par, .. }
             | ECtx::Closure { par, .. } => *par.clone(),
-            ECtx::Top => todo!(),
-            ECtx::Undefined => todo!(),
         }
     }
 
@@ -756,25 +749,25 @@ where
 
             f(ctx, Expr::ETuple(new_exprs))
         }
-        Expr::ESlice { array, high, low } => {
-            let array = expr_fold_ctx(
-                f,
-                &ECtx::Slice {
-                    par_expr: expr.clone(),
-                    par: Box::new(ctx.clone()),
-                },
-                array,
-            );
+        // Expr::ESlice { array, high, low } => {
+        //     let array = expr_fold_ctx(
+        //         f,
+        //         &ECtx::Slice {
+        //             par_expr: expr.clone(),
+        //             par: Box::new(ctx.clone()),
+        //         },
+        //         array,
+        //     );
 
-            f(
-                ctx,
-                Expr::ESlice {
-                    array: Box::new(array),
-                    high: *high,
-                    low: *low,
-                },
-            )
-        }
+        //     f(
+        //         ctx,
+        //         Expr::ESlice {
+        //             array: Box::new(array),
+        //             high: *high,
+        //             low: *low,
+        //         },
+        //     )
+        // }
         Expr::EMatch { clause, body } => {
             // Fold the match expression itself
             let clause =
@@ -1154,7 +1147,7 @@ where
             Expr::ETuple(elems) => elems
                 .iter()
                 .fold(x_prime, |a, sub| op.clone()(a, go(f, op, ctx, sub))),
-            Expr::ESlice { array, .. } => op.clone()(x_prime, go(f, op, ctx, array)),
+            // Expr::ESlice { array, .. } => op.clone()(x_prime, go(f, op, ctx, array)),
             Expr::EMatch { clause, body } => {
                 let acc = op.clone()(x_prime.clone(), go(f, op, ctx, clause));
                 body.iter().fold(acc, |a, (p, v)| {
@@ -1211,22 +1204,84 @@ where
     go(&mut f, op, ctx, e)
 }
 
-// instance WithType Type where
-//     typ = id
-//     setType _ t = t
+impl From<ASTTerm> for Expr {
+    fn from(value: ASTTerm) -> Self {
+        match value {
+            ASTTerm::Int(v) => Expr::EInt(v),
+            ASTTerm::Bool(v) => Expr::EBool(v),
+            ASTTerm::String(v) => Expr::EString(v),
+            ASTTerm::Float(v) => Expr::EFloat(v),
+            ASTTerm::Vec(_) => todo!(),
+            ASTTerm::Tuple(_) => todo!(),
+            ASTTerm::Map(_) => todo!(),
+            ASTTerm::ConsTerm { .. } => todo!(),
+            ASTTerm::Var(identifier) => Expr::EVar(identifier),
+            ASTTerm::Match { scrutinee, clauses } => Expr::EMatch {
+                clause: Box::new((*scrutinee).into()),
+                body: clauses
+                    .into_iter()
+                    .map(|(pat, body)| (pat.into(), body.into()))
+                    .collect(),
+            },
+            ASTTerm::IfThenElse {
+                cond,
+                then_term,
+                else_term,
+            } => Expr::EITE {
+                cond: Box::new((*cond).into()),
+                then: Box::new((*then_term).into()),
+                else_: match else_term {
+                    Some(else_) => Box::new((*else_).into()),
+                    None => Box::new(Expr::EPHolder),
+                },
+            },
+            ASTTerm::For { .. } => todo!(),
+            ASTTerm::Continue => Expr::EContinue,
+            ASTTerm::Break => Expr::EBreak,
+            ASTTerm::Return(expr) => Expr::EReturn(Box::new((*expr.unwrap()).into())),
+            ASTTerm::VarDecl(identifier) => Expr::EVarDecl(identifier),
+            ASTTerm::Lambda { .. } => todo!(),
+            ASTTerm::Wildcard => todo!(),
+        }
+    }
+}
 
-// instance WithType Field where
-//     typ = fieldType
-//     setType f t = f { fieldType = t }
-
-// instance WithType FuncArg where
-//     typ = atypeType . argType
-//     setType a t = a { argType = (argType a){atypeType = t} }
-
-// instance WithType ArgType where
-//     typ = atypeType
-//     setType a t = a { atypeType = t }
-
-// instance WithType Relation where
-//     typ = relType
-//     setType r t = r { relType = t }
+impl From<ASTExpr> for Expr {
+    fn from(value: ASTExpr) -> Self {
+        match value {
+            ASTExpr::Term(term) => term.into(),
+            ASTExpr::Unary { op, rhs } => Expr::EUnOp {
+                op: op,
+                expr: Box::new((*rhs).into()),
+            },
+            ASTExpr::Binary { lhs, op, rhs } => Expr::EBinOp {
+                op,
+                left: Box::new((*lhs).into()),
+                right: Box::new((*rhs).into()),
+            },
+            ASTExpr::Slice { .. } => todo!(),
+            ASTExpr::TypeAnnotation { parent, ty } => Expr::ETyped {
+                expr: Box::new((*parent).into()),
+                spec: ty.into(),
+            },
+            ASTExpr::FCall { func, args } => Expr::EApply {
+                func: Box::new((*func).into()),
+                args: args.into_iter().map(|a| a.into()).collect(),
+            },
+            ASTExpr::DotFCall { .. } => todo!(),
+            ASTExpr::Field { base, field } => Expr::EField {
+                struct_: Box::new((*base).into()),
+                field,
+            },
+            ASTExpr::TupleIndex { base, index } => Expr::ETupField {
+                tuple: Box::new((*base).into()),
+                field: index as usize,
+            },
+            ASTExpr::Cast { base, ty } => Expr::EAs {
+                expr: Box::new((*base).into()),
+                spec: ty.into(),
+            },
+            ASTExpr::Try(expr) => Expr::ETry(Box::new((*expr).into())),
+        }
+    }
+}

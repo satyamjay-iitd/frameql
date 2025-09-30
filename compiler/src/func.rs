@@ -1,6 +1,7 @@
 use frameql_ast::FnArg;
 
 use crate::{expr::Expr, r#type::Type};
+use frameql_ast::Function as ASTFn;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Function {
@@ -51,4 +52,10 @@ pub struct ExternFn {
     pub name: String,
     pub args: Vec<FnArg>,
     pub return_type: Type,
+}
+
+impl From<ASTFn> for Function {
+    fn from(value: ASTFn) -> Self {
+        todo!()
+    }
 }

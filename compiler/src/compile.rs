@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use frameql_ast::Identifier;
+use frameql_ast::{Identifier, RelSemantics};
 use petgraph::{Directed, Graph};
 
 use crate::{
     expr::{ECtx, Expr, expr_fold_ctx},
     prog::FrameQLProgram,
-    relation::{RelSemantics, Relation},
+    relation::Relation,
     rule::{Rule, RuleRHS},
 };
 
@@ -60,7 +60,7 @@ pub fn create_arrangements(prog: &FrameQLProgram, state: &mut CompilerState) {
 }
 
 pub fn create_rel_arrangements(prog: &FrameQLProgram, rel: &Relation, state: &mut CompilerState) {
-    for rule in prog.get_rules(rel) {
+    for rule in prog.get_rules(&rel.name) {
         create_rule_arrangements(prog, &rule, state);
     }
 }
