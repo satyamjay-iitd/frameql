@@ -1,0 +1,21 @@
+[package]
+name = "framedb"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+bincode = "2.0.1"
+bounding_box = {version="0.1.1", git= "https://github.com/satyamjay-iitd/bounding_box", features=["bincode"]}
+cocotools = "0.0.7"
+eframe = "0.32.3"
+epi = "0.17.0"
+futures = "0.3.31"
+image = "0.25.8"
+# image = "0.25.8"
+# opencv = "0.96.0"
+plotters = "0.3.7"
+# show-image = "0.14.1"

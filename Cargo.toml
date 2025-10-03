@@ -3,7 +3,8 @@ members = [
     "parser",
     "ast",
     "compiler",
-    "compiler-bin"
+    "compiler-bin",
+    "framedb"
 ]
 
 resolver = "2"
