@@ -1,9 +1,8 @@
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use framedb::{
-    planner::{DefaultPhysicalPlanner, ExecutionPlan, FileTable, MemTable, PhysicalPlanner},
-    query::LogicalPlan,
-    query_builder::LogicalPlanBuilder,
+    logical::{LogicalPlan, LogicalPlanBuilder},
+    physical::{DefaultPhysicalPlanner, ExecutionPlan, FileTable, PhysicalPlanner},
 };
 
 fn test_insert_obj() {

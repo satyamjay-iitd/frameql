@@ -10,9 +10,9 @@ use bounding_box::BoundingBox;
 use eframe::egui;
 use framedb::{
     ClassId, Metadata, Trajectory,
-    planner::{Atom, DefaultPhysicalPlanner, ExecutionPlan, FileTable, PhysicalPlanner as _},
-    query::LogicalPlan,
-    query_builder::{LogicalPlanBuilder, MetadataFilter},
+    logical::{LogicalPlan, LogicalPlanBuilder, MetadataFilter},
+    physical::{DefaultPhysicalPlanner, ExecutionPlan, FileTable, PhysicalPlanner as _},
+    server::server,
     util::{read_annotations_from_file, write_bin},
 };
 
@@ -20,17 +20,19 @@ use crate::dashboard::MyApp;
 
 mod dashboard;
 
-fn main() -> io::Result<()> {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Multiple viewports",
-        options,
-        Box::new(|_cc| Ok(Box::<MyApp>::default())),
-    )
-    .unwrap();
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    server().await;
+    // let options = eframe::NativeOptions {
+    //     viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+    //     ..Default::default()
+    // };
+    // eframe::run_native(
+    //     "Multiple viewports",
+    //     options,
+    //     Box::new(|_cc| Ok(Box::<MyApp>::default())),
+    // )
+    // .unwrap();
     // let annotations = read_annotations_from_file(
     //     "/home/satyam/Downloads/MOTSChallenge/train/instances_txt/0002.txt",
     // )?;

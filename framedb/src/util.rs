@@ -1,7 +1,6 @@
 use cocotools::coco::object_detection::{Bbox, CocoRle, Rle};
 
-use crate::ClassId;
-use crate::planner::Atom;
+use crate::{Atom, ClassId};
 use std::fs::File;
 use std::io::Write;
 use std::io::{self, BufRead};

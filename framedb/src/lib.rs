@@ -1,15 +1,14 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    path::PathBuf,
-};
+use std::collections::{BTreeMap, HashSet};
 
 use bincode::{Decode, Encode};
 use bounding_box::BoundingBox;
+use plotters::prelude::*;
 
-use crate::planner::Atom;
-pub mod planner;
-pub mod query;
-pub mod query_builder;
+pub mod dashboard;
+pub mod ingest;
+pub mod logical;
+pub mod physical;
+pub mod server;
 pub mod util;
 
 pub type ObjID = u64;
@@ -18,8 +17,10 @@ pub type ObjID = u64;
 pub struct Trajectory(pub BTreeMap<u64, BoundingBox>);
 
 impl Trajectory {
-    fn clip_mut(&mut self, start: u64, end: u64) {}
-    fn clip(&self, start: u64, end: u64) -> Trajectory {
+    pub fn clip_mut(&mut self, _start: u64, _end: u64) {
+        todo!()
+    }
+    pub fn clip(&self, _start: u64, _end: u64) -> Trajectory {
         todo!()
     }
 }
@@ -32,40 +33,49 @@ pub struct Metadata {
     pub class: HashSet<ClassId>,
 }
 
-pub enum StorageBackend {
-    Mem,
-    File(PathBuf),
-}
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Atom(pub u64, pub Trajectory, pub Metadata);
 
-pub struct FrameDB {
-    backend: StorageBackend,
-}
+impl Atom {
+    pub fn plot(
+        &self,
+        output_path: &str,
+        img_w: u32,
+        img_h: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Atom(id, Trajectory(bboxes), _) = self;
 
-impl FrameDB {
-    pub fn new(path: PathBuf) -> Self {
-        let backend = if path.to_string_lossy() == ":mem:" {
-            StorageBackend::Mem
-        } else {
-            StorageBackend::File(path)
-        };
-        Self { backend }
-    }
+        // Create drawing area
+        let root = BitMapBackend::new(output_path, (img_w, img_h)).into_drawing_area();
+        root.fill(&WHITE)?;
 
-    pub fn insert(
-        &mut self,
-        obj_id: ObjID,
-        metadata: Option<Metadata>,
-        bbox: BoundingBox,
-        frame_id: u64,
-    ) {
-        todo!()
-    }
+        let mut chart = ChartBuilder::on(&root)
+            .caption(format!("Trajectory of Atom ID {}", id), ("sans-serif", 30))
+            .margin(20)
+            .x_label_area_size(30)
+            .y_label_area_size(30)
+            .build_cartesian_2d(0f64..1920f64, 0f64..1080f64)?;
 
-    pub fn trajectory_of(&self, obj_id: u64) -> Trajectory {
-        todo!()
-    }
+        chart.configure_mesh().draw()?;
 
-    pub fn trajectories_of(&self, class_id: ClassId) -> HashMap<ObjID, Trajectory> {
-        todo!()
+        // Plot each bounding box
+        // for (_frame, bbox) in bboxes {
+        //     chart.draw_series(std::iter::once(Rectangle::new(
+        //         [(bbox.xmin(), bbox.ymin()), (bbox.xmax(), bbox.ymax())],
+        //         ShapeStyle::from(&RED).stroke_width(1),
+        //     )))?;
+        // }
+        for (_frame, bbox) in bboxes {
+            let center_x = (bbox.xmin() + bbox.xmax()) / 2.0;
+            let center_y = (bbox.ymin() + bbox.ymax()) / 2.0;
+
+            chart.draw_series(std::iter::once(
+                Circle::new((center_x, center_y), 2, RED.filled()), // radius=2
+            ))?;
+        }
+
+        // Save to file
+        root.present()?;
+        Ok(())
     }
 }

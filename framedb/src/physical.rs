@@ -1,63 +1,14 @@
-use plotters::prelude::*;
-use std::{fs, path::PathBuf, thread, time::Duration};
+use std::path::PathBuf;
 
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::{Arc, Mutex, RwLock};
 
-use bincode::{Decode, Encode};
-
-use crate::query::{Filter, FilterExpr, LogicalPlan};
-use crate::query_builder::{MetadataFilter, ObjIDFilter, TrajectoryFilter};
-use crate::{Metadata, Trajectory};
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct Atom(pub u64, pub Trajectory, pub Metadata);
-
-impl Atom {
-    pub fn plot(
-        &self,
-        output_path: &str,
-        img_w: u32,
-        img_h: u32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let Atom(id, Trajectory(bboxes), _) = self;
-
-        // Create drawing area
-        let root = BitMapBackend::new(output_path, (img_w, img_h)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let mut chart = ChartBuilder::on(&root)
-            .caption(format!("Trajectory of Atom ID {}", id), ("sans-serif", 30))
-            .margin(20)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(0f64..1920f64, 0f64..1080f64)?;
-
-        chart.configure_mesh().draw()?;
-
-        // Plot each bounding box
-        // for (_frame, bbox) in bboxes {
-        //     chart.draw_series(std::iter::once(Rectangle::new(
-        //         [(bbox.xmin(), bbox.ymin()), (bbox.xmax(), bbox.ymax())],
-        //         ShapeStyle::from(&RED).stroke_width(1),
-        //     )))?;
-        // }
-        for (_frame, bbox) in bboxes {
-            let center_x = (bbox.xmin() + bbox.xmax()) / 2.0;
-            let center_y = (bbox.ymin() + bbox.ymax()) / 2.0;
-
-            chart.draw_series(std::iter::once(
-                Circle::new((center_x, center_y), 2, RED.filled()), // radius=2
-            ))?;
-        }
-
-        // Save to file
-        root.present()?;
-        Ok(())
-    }
-}
+use crate::logical::{
+    Filter, FilterExpr, LogicalPlan, MetadataFilter, ObjIDFilter, TrajectoryFilter,
+};
+use crate::{Atom, Metadata, Trajectory};
 
 pub trait ObjProvider: Debug + Sync + Send {
     fn scan(&self) -> Arc<dyn ExecutionPlan>;
@@ -77,16 +28,12 @@ impl MemTable {
     }
 }
 
-// pub trait DataSource: Send + Sync + Debug {
-//     fn open(&self) -> Box<dyn Iterator<Item = Atom> + Send>;
-// }
-
 pub struct DataSourceExec {
     factory: Arc<dyn Fn() -> Box<dyn Iterator<Item = Atom> + Send> + Send + Sync>,
 }
 
 impl Debug for DataSourceExec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
@@ -110,7 +57,7 @@ impl ExecutionPlan for DataSourceExec {
 
     fn with_new_children(
         self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
+        _children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Arc<dyn ExecutionPlan> {
         self
     }
@@ -119,18 +66,6 @@ impl ExecutionPlan for DataSourceExec {
         (self.factory)()
     }
 }
-
-/// Data source configuration for reading in-memory batches of data
-// #[derive(Clone, Debug)]
-// pub struct MemorySourceConfig {
-//     partitions: Vec<Atom>,
-// }
-
-// impl MemorySourceConfig {
-//     pub fn new(partitions: Vec<Atom>) -> Self {
-//         Self { partitions }
-//     }
-// }
 
 /// Iterator over batches
 pub struct MemoryStream {
@@ -156,12 +91,6 @@ impl Iterator for MemoryStream {
     }
 }
 
-// impl DataSource for MemorySourceConfig {
-//     fn open(&self) -> Box<dyn Iterator<Item = Atom> + Send> {
-//         Box::new(MemoryStream::new(self.partitions.clone()))
-//     }
-// }
-
 impl ObjProvider for MemTable {
     fn scan(&self) -> Arc<dyn ExecutionPlan> {
         let data = self.batches.clone();
@@ -171,10 +100,8 @@ impl ObjProvider for MemTable {
         })))
     }
 
-    fn insert_into(&self, input: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
+    fn insert_into(&self, _input: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
         todo!()
-        // let sink = MemSink::new(self.batches.clone());
-        // Arc::new(DataSinkExec::new(input, Arc::new(sink)))
     }
 }
 
@@ -203,7 +130,7 @@ impl ObjProvider for FileTable {
         Arc::new(DataSourceExec::new(factory))
     }
 
-    fn insert_into(&self, input: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
+    fn insert_into(&self, _input: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
         todo!()
     }
 }
@@ -333,35 +260,8 @@ pub trait ExecutionPlan: Debug + Send + Sync {
         }
     }
 
-    fn visualize(&self, img_dir: PathBuf) -> anyhow::Result<()> {
-        // let _ctx = context();
-        // let mut entries: Vec<_> = fs::read_dir(&img_dir)?
-        //     .filter_map(|e| e.ok())
-        //     .filter(|e| {
-        //         if let Some(ext) = e.path().extension() {
-        //             matches!(ext.to_str(), Some("jpg" | "png" | "jpeg"))
-        //         } else {
-        //             false
-        //         }
-        //     })
-        //     .collect();
-
-        // entries.sort_by_key(|e| e.path());
-
-        // let window = create_window("Playback", Default::default())?;
-
-        // for entry in entries {
-        //     let img = image::ImageReader::open(entry.path())?.decode()?.to_rgba8();
-        //     let (w, h) = img.dimensions();
-        //     let view = ImageView::new(ImageInfo::rgba8(w, h), img.as_raw());
-
-        //     window.set_image("frame", view)?;
-
-        //     // ~30fps
-        //     thread::sleep(Duration::from_millis(33));
-        // }
-
-        Ok(())
+    fn visualize(&self, _img_dir: PathBuf) -> anyhow::Result<()> {
+        todo!()
     }
 }
 
@@ -727,7 +627,7 @@ impl PhysicalExpr for ObjIDFilter {
 }
 
 impl PhysicalExpr for TrajectoryFilter {
-    fn evaluate(&self, _obj_id: &u64, traj: &Trajectory, _metadata: &Metadata) -> bool {
+    fn evaluate(&self, _obj_id: &u64, _traj: &Trajectory, _metadata: &Metadata) -> bool {
         todo!()
     }
 
