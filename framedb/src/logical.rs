@@ -198,8 +198,24 @@ pub fn plan_from_str(s: &str, ann: Vec<Atom>) -> LogicalPlan {
             }),
         )
         .build()
-    } else if s == "IN_REGION" {
-        todo!()
+    } else if s == "Car(id) = Object(id, class_id), class_id='car'" {
+        LogicalPlanBuilder::scan(
+            "blah".to_string(),
+            Arc::new(MemTable {
+                batches: Arc::new(ann),
+            }),
+        )
+        .filter_by_metadata(MetadataFilter::IsA(ClassId(1)))
+        .build()
+    } else if s == "Person(id) = Object(id, class_id), class_id='person'" {
+        LogicalPlanBuilder::scan(
+            "blah".to_string(),
+            Arc::new(MemTable {
+                batches: Arc::new(ann),
+            }),
+        )
+        .filter_by_metadata(MetadataFilter::IsA(ClassId(2)))
+        .build()
     } else {
         todo!()
     }

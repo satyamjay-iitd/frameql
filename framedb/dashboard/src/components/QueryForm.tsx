@@ -43,7 +43,7 @@ export default function ({ videoList }: { videoList: VideoInfo[] }) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       videoId: "",
-      query: "",
+      query: "Person(id) = Object(id, class_id), class_id='person'",
     },
   })
 
@@ -106,7 +106,7 @@ export default function ({ videoList }: { videoList: VideoInfo[] }) {
               <FormItem>
                 <FormLabel>Query</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. gear == 3 -> gear == 4" {...field} />
+                  <Input defaultValue="Person(id) = Object(id, class_id), class_id='person'" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

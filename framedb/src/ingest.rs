@@ -49,11 +49,9 @@ pub fn draw_bboxes_on_frames(
                     Rgb([255, 0, 0]), // red box
                 );
             }
+            let out_path = output_dir.join(frame_path.file_name().unwrap());
+            img.save(out_path)?;
         }
-
-        let out_path = output_dir.join(frame_path.file_name().unwrap());
-        // .with_extension("png");
-        img.save(out_path)?;
     }
 
     Ok(())
@@ -154,6 +152,13 @@ impl FrameDb {
                     .push(bbox.clone());
             }
         }
+        // let mut filtered_frame_paths = vec![];
+        // for (idx, bboxes) in frame_id_to_bboxes.iter() {
+        //     if !bboxes.is_empty() {
+        //         filtered_frame_paths.push(frame_paths[*idx as usize].clone());
+        //     }
+        // }
+        // println!("{:?}", filtered_frame_paths);
         draw_bboxes_on_frames(&frame_paths, &frame_id_to_bboxes, &frame_out_dir).unwrap();
         self.frames_to_video(&frame_out_dir, &video_out_path, 30)
             .unwrap();
@@ -267,6 +272,9 @@ impl FrameDb {
         // Open first frame
         let first = image::open(&frame_files[0]).unwrap().to_rgb8();
         let (width, height) = first.dimensions();
+        // h264 wants even width and height
+        let width = if width % 2 == 0 { width } else { width + 1 };
+        let height = if height % 2 == 0 { height } else { height + 1 };
 
         // Output context
         let mut octx = format::output(output_path)?;
@@ -318,12 +326,15 @@ impl FrameDb {
 
             let mut rgb_frame =
                 Video::new(ffmpeg::format::Pixel::RGB24, width as u32, height as u32);
+            let bytes_per_row = (width * 3) as usize;
+            let stride = rgb_frame.stride(0) as usize;
+            let data = rgb_frame.data_mut(0);
 
-            // Copy row-by-row (respect stride)
-            let stride = rgb_frame.stride(0);
-
-            assert_eq!(stride as u32, width * 3);
-            rgb_frame.data_mut(0)[..img_buf.len()].copy_from_slice(img_buf);
+            for (row_idx, row) in img_buf.chunks_exact(bytes_per_row).enumerate() {
+                let start = row_idx * stride;
+                let end = start + bytes_per_row;
+                data[start..end].copy_from_slice(row);
+            }
 
             // for (i, row) in img.rows().enumerate() {
             //     let start = i * stride as usize;
@@ -364,21 +375,6 @@ impl FrameDb {
         let annotation_path = self.base_dir.join(id).join("annotation");
         read_bin(annotation_path)
     }
-}
-fn receive_and_write_packets(
-    encoder: &mut VideoEncoder,
-    octx: &mut format::context::Output,
-    stream_index: usize,
-    input_time_base: Rational,
-    ost_time_base: Rational,
-) -> Result<(), ffmpeg::Error> {
-    let mut encoded = ffmpeg::Packet::empty();
-    while encoder.receive_packet(&mut encoded).is_ok() {
-        encoded.set_stream(stream_index);
-        encoded.rescale_ts(input_time_base, ost_time_base);
-        encoded.write_interleaved(octx).unwrap();
-    }
-    Ok(())
 }
 
 pub fn anns_to_atoms(annotations: Vec<Annotation>) -> Vec<Atom> {
