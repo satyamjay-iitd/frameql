@@ -1,10 +1,11 @@
+use crate::Atom;
+use crate::{ClassId, Trajectory, physical::ObjProvider};
+use std::hash::Hash;
 use std::sync::Arc;
 
-use crate::{ClassId, Trajectory, physical::ObjProvider};
+use crate::physical::{MemTable, PhysicalExpr};
 
-use crate::physical::PhysicalExpr;
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub enum LogicalPlan {
     Scan(Scan),
     Filter(Filter),
@@ -22,35 +23,37 @@ impl LogicalPlan {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Scan {
     pub name: String,
     pub source: Arc<dyn ObjProvider>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub enum FilterExpr {
     True,
     False,
     ObjId(ObjIDFilter),
     Metadata(MetadataFilter),
+    // BBox(BBoxFilter),
     Trajectory(TrajectoryFilter),
     Not(Arc<dyn PhysicalExpr>),
     Or(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>),
     And(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Filter {
     pub predicate: FilterExpr,
     pub input: Arc<LogicalPlan>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Union {
     pub inputs: Vec<Arc<LogicalPlan>>,
 }
-#[derive(Clone, Debug)]
+
+#[derive(Clone, Debug, Hash)]
 pub enum MetadataFilter {
     True,
     False,
@@ -118,7 +121,7 @@ impl From<ClassId> for MetadataFilter {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct TrajectoryFilter(Trajectory);
 
 impl From<Trajectory> for TrajectoryFilter {
@@ -127,12 +130,17 @@ impl From<Trajectory> for TrajectoryFilter {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct ObjIDFilter(pub(crate) u64);
 impl From<u64> for ObjIDFilter {
     fn from(id: u64) -> Self {
         ObjIDFilter(id)
     }
+}
+
+#[derive(Clone, Debug, Hash)]
+pub enum BBoxFilter {
+    InRect,
 }
 
 pub struct LogicalPlanBuilder {
@@ -178,5 +186,21 @@ impl LogicalPlanBuilder {
     }
     pub fn build(self) -> LogicalPlan {
         Arc::unwrap_or_clone(self.query)
+    }
+}
+
+pub fn plan_from_str(s: &str, ann: Vec<Atom>) -> LogicalPlan {
+    if s == "ALL" {
+        LogicalPlanBuilder::scan(
+            "blah".to_string(),
+            Arc::new(MemTable {
+                batches: Arc::new(ann),
+            }),
+        )
+        .build()
+    } else if s == "IN_REGION" {
+        todo!()
+    } else {
+        todo!()
     }
 }

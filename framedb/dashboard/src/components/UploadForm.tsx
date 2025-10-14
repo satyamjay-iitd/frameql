@@ -1,134 +1,3 @@
-// import { useState } from "react"
-// import { Input } from "@/components/ui/input"
-// import { Textarea } from "@/components/ui/textarea"
-// import { Label } from "@/components/ui/label"
-// import { Button } from "@/components/ui/button"
-
-// export default function UploadForm() {
-//   const [videoFile, setVideoFile] = useState<File | null>(null)
-//   const [annotationFile, setAnnotationFile] = useState<File | null>(null)
-
-//   const [metadata, setMetadata] = useState({
-//     title: "",
-//     description: "",
-//     tags: "",
-//     category: "",
-//   })
-
-//   const handleSubmit = async (e: React.FormEvent) => {
-//     e.preventDefault()
-//     if (!videoFile) return
-
-//     const formData = new FormData()
-//     formData.append("video", videoFile)
-//     if (annotationFile) formData.append("annotation", annotationFile)
-
-//     Object.entries(metadata).forEach(([key, value]) => {
-//       formData.append(key, value)
-//     })
-
-//     // TODO: Replace with actual upload logic
-//     console.log("Submitting form data:", {
-//       videoFile,
-//       annotationFile,
-//       metadata,
-//     })
-//   }
-
-//   return (
-//     <form
-//       onSubmit={handleSubmit}
-//       className="space-y-8 p-6 rounded-lg shadow border"
-//     >
-//       {/* File Uploads */}
-//       <fieldset className="space-y-4">
-//         <legend className="text-lg font-semibold mb-2">
-//           Files
-//         </legend>
-
-//         <div>
-//           <Label htmlFor="video">Video File</Label>
-//           <Input
-//             id="video"
-//             type="file"
-//             accept="video/*"
-//             onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
-//           />
-//         </div>
-
-//         <div>
-//           <Label htmlFor="annotation">Annotation File</Label>
-//           <Input
-//             id="annotation"
-//             type="file"
-//             accept=".json,.xml,.txt"
-//             onChange={(e) => setAnnotationFile(e.target.files?.[0] || null)}
-//           />
-//         </div>
-//       </fieldset>
-
-//       {/* Metadata */}
-//       <fieldset className="space-y-4">
-//         <legend className="text-lg font-semibold mb-2">
-//           Video Metadata
-//         </legend>
-
-//         <div>
-//           <Label htmlFor="title">Title</Label>
-//           <Input
-//             id="title"
-//             value={metadata.title}
-//             onChange={(e) =>
-//               setMetadata({ ...metadata, title: e.target.value })
-//             }
-//             placeholder="Enter video title"
-//           />
-//         </div>
-
-//         <div>
-//           <Label htmlFor="description">Description</Label>
-//           <Textarea
-//             id="description"
-//             value={metadata.description}
-//             onChange={(e) =>
-//               setMetadata({ ...metadata, description: e.target.value })
-//             }
-//             placeholder="Short description of the video"
-//           />
-//         </div>
-
-//         <div>
-//           <Label htmlFor="tags">Tags (comma-separated)</Label>
-//           <Input
-//             id="tags"
-//             value={metadata.tags}
-//             onChange={(e) =>
-//               setMetadata({ ...metadata, tags: e.target.value })
-//             }
-//             placeholder="e.g. AI, tutorial, ML"
-//           />
-//         </div>
-
-//         <div>
-//           <Label htmlFor="category">Category</Label>
-//           <Input
-//             id="category"
-//             value={metadata.category}
-//             onChange={(e) =>
-//               setMetadata({ ...metadata, category: e.target.value })
-//             }
-//             placeholder="e.g. Education, Technology"
-//           />
-//         </div>
-//       </fieldset>
-
-//       <Button type="submit" disabled={!videoFile}>
-//         Upload
-//       </Button>
-//     </form>
-//   )
-// }
-
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -137,15 +6,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-// import {
-//   Field,
-//   FieldDescription,
-//   FieldGroup,
-//   FieldLabel,
-//   FieldSeparator,
-// } from "@/components/ui/field"
-// import { Input } from "@/components/ui/input"
-// import { Textarea } from "./ui/textarea"
 import {
   Tags,
   TagsContent,
@@ -157,7 +17,7 @@ import {
   TagsTrigger,
   TagsValue,
 } from '@/components/ui/shadcn-io/tags';
-import { CheckIcon, PlusIcon } from 'lucide-react';
+import { Check, CheckIcon, ChevronsUpDown, PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from "react-hook-form"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
@@ -166,6 +26,15 @@ import { FieldSeparator } from "./ui/field";
 import { Textarea } from "./ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./ui/command";
+
+
+const annotation_types = [
+  { label: "KPF", value: "KPF" },
+  { label: "COCO", value: "COCO" },
+  { label: "DIVE", value: "DIVE" },
+] as const
 
 const formSchema = z.object({
   video: z
@@ -174,6 +43,7 @@ const formSchema = z.object({
   annotations: z
     .instanceof(FileList)
     .refine((file) => file?.length == 1, 'Annotation is required.'),
+  ann_format: z.enum(["KPF", "COCO", "DIVE"]),
   title: z.string().min(3),
   desc: z.string().optional(),
 })
@@ -183,10 +53,11 @@ function onSubmit(values: z.infer<typeof formSchema>) {
 
   formData.append("video", values.video[0])
   formData.append("annotations", values.annotations[0])
+  formData.append("ann_format", values.ann_format)
   formData.append("title", values.title)
   formData.append("desc", values.desc || "")
 
-  fetch("http://localhost:3000/upload", {
+  fetch("http://10.144.224.104:3000/upload", {
     method: "POST",
     body: formData,
   })
@@ -233,7 +104,71 @@ export default function UploadForm({
                         <Input type="file" {...videoRef}/>
                       </FormControl>
                       <FormMessage />
-                  </FormItem>
+                    </FormItem>
+                  )}
+                />
+
+              <FormField
+                control={form.control}
+                name="ann_format"
+                render={({field}) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Annotation Format</FormLabel>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={cn(
+                                "w-[200px] justify-between",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value
+                                ? annotation_types.find(
+                                    (t) => t.value === field.value
+                                  )?.label
+                                : "Select Annotation Type"}
+                              <ChevronsUpDown className="opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[200px] p-0">
+                          <Command>
+                            <CommandInput
+                              placeholder="Search framework..."
+                              className="h-9"
+                            />
+                            <CommandList>
+                              <CommandEmpty>No framework found.</CommandEmpty>
+                              <CommandGroup>
+                                {annotation_types.map((ann) => (
+                                  <CommandItem
+                                    value={ann.label}
+                                    key={ann.value}
+                                    onSelect={() => {
+                                      form.setValue("ann_format", ann.value)
+                                    }}
+                                  >
+                                    {ann.label}
+                                    <Check
+                                      className={cn(
+                                        "ml-auto",
+                                        ann.value === field.value
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
                   )}
                 />
 
@@ -242,12 +177,12 @@ export default function UploadForm({
                   name="annotations"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Annotations</FormLabel>
+                      <FormLabel>Annotation File</FormLabel>
                       <FormControl>
                         <Input type="file" {...annRef}/>
                       </FormControl>
                       <FormMessage />
-                  </FormItem>
+                    </FormItem>
                   )}
                 />
 
@@ -265,7 +200,7 @@ export default function UploadForm({
                         <Input type="text" placeholder="e.g. traffic.mp4" {...field} required/>
                       </FormControl>
                       <FormMessage />
-                  </FormItem>
+                    </FormItem>
                   )}
                 />
 
@@ -279,7 +214,7 @@ export default function UploadForm({
                         <Textarea {...field} required/>
                       </FormControl>
                       <FormMessage />
-                  </FormItem>
+                    </FormItem>
                   )}
                 />
 

@@ -1,24 +1,46 @@
-import VideoCard from "@/components/VideoCard"
 
-const sampleVideos = [
-  { id: "1", title: "Test Video", tags: ["test", "demo"], thumbnailUrl: "" },
-]
+import VideoCard from "@/components/VideoCard"
+import { useEffect, useState } from "react"
+
+interface VideoInfo {
+  id: string
+  name: string
+  path: string
+  thumbnail_url: string
+}
 
 export default function LibraryPage() {
-  const handleView = (id: string) => {
-    console.log("Viewing", id)
-    // Open modal or navigate to detailed video view
-  }
+  const [videos, setVideos] = useState<VideoInfo[]>([])
+
+  useEffect(() => {
+    const fetchVideos = async () => {
+      try {
+        const res = await fetch("http://10.144.224.104:3000/video")
+        if (!res.ok) throw new Error("Failed to fetch videos")
+        const data: VideoInfo[] = await res.json()
+        console.log(data)
+        setVideos(data)
+      } catch (err) {
+        console.error("Error fetching videos:", err)
+      }
+    }
+    fetchVideos()
+  }, [])
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Video Library</h1>
       <div className="flex gap-4 flex-wrap">
-        {sampleVideos.map((video) => (
-          <VideoCard key={video.id} video={video} onView={handleView} />
+        {videos.map((video) => (
+          <VideoCard
+            key={video.id}
+            video={{
+              id: video.id,
+              title: video.name,
+              thumbnailUrl: video.thumbnail_url,
+            }}
+          />
         ))}
       </div>
     </div>
   )
 }
-

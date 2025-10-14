@@ -5,19 +5,28 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::{Arc, Mutex, RwLock};
 
+use dyn_hash::DynHash;
+
 use crate::logical::{
     Filter, FilterExpr, LogicalPlan, MetadataFilter, ObjIDFilter, TrajectoryFilter,
 };
 use crate::{Atom, Metadata, Trajectory};
 
-pub trait ObjProvider: Debug + Sync + Send {
+pub trait ObjProvider: Debug + Sync + Send + DynHash {
     fn scan(&self) -> Arc<dyn ExecutionPlan>;
     fn insert_into(&self, input: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan>;
 }
+dyn_hash::hash_trait_object!(ObjProvider);
 
 #[derive(Debug)]
 pub struct MemTable {
     pub batches: Arc<Vec<Atom>>,
+}
+
+impl std::hash::Hash for MemTable {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        "mem_table".hash(state);
+    }
 }
 
 impl MemTable {
@@ -109,7 +118,7 @@ struct FileSourceConfig {
     iter: Box<dyn Iterator<Item = Atom> + Send>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct FileTable {
     file_path: PathBuf,
 }
@@ -265,7 +274,7 @@ pub trait ExecutionPlan: Debug + Send + Sync {
     }
 }
 
-pub trait PhysicalExpr: Send + Sync + Debug {
+pub trait PhysicalExpr: Send + Sync + Debug + DynHash {
     fn evaluate(&self, obj_id: &u64, traj: &Trajectory, metadata: &Metadata) -> bool;
 
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>>;
@@ -275,6 +284,8 @@ pub trait PhysicalExpr: Send + Sync + Debug {
         children: Vec<Arc<dyn PhysicalExpr>>,
     ) -> Arc<dyn PhysicalExpr>;
 }
+
+dyn_hash::hash_trait_object!(PhysicalExpr);
 
 pub trait PhysicalPlanner: Send + Sync {
     fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Arc<dyn ExecutionPlan>;
@@ -500,11 +511,22 @@ impl Iterator for FilterExecStream {
     type Item = Atom;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(Atom(id, traj, metadata)) = self.input.next() {
-            let maybe_passes = self.predicate.evaluate(&id, &traj, &metadata);
+        while let Some(Atom {
+            obj_id,
+            trajectory,
+            metadata,
+        }) = self.input.next()
+        {
+            let maybe_passes = self.predicate.evaluate(&obj_id, &trajectory, &metadata);
 
             match maybe_passes {
-                true => return Some(Atom(id, traj, metadata)),
+                true => {
+                    return Some(Atom {
+                        obj_id,
+                        trajectory,
+                        metadata,
+                    });
+                }
                 false => continue,
             }
         }
@@ -582,7 +604,7 @@ impl PhysicalExpr for FilterExpr {
             }
             FilterExpr::And(expr1, expr2) => {
                 expr1.evaluate(obj_id, traj, metadata) && expr2.evaluate(obj_id, traj, metadata)
-            }
+            } // FilterExpr::BBox(expr) => expr.evaluate(obj_id, traj, metadata),
         }
     }
 
